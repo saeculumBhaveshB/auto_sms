@@ -16,14 +16,17 @@ import {
 import PermissionsStatusScreen from "./src/screens/PermissionsStatusScreen";
 import AutoSmsStatusScreen from "./src/screens/AutoSmsStatusScreen";
 
-// Create a context to share tab navigation functions
-export const NavigationContext = React.createContext<{
+// Define screen types
+type Screen = "permissions" | "smsStatus";
+
+// Create a navigation context for tab switching
+export type NavigationContextType = {
   navigateToTab: (tab: Screen) => void;
-}>({
+};
+
+export const NavigationContext = React.createContext<NavigationContextType>({
   navigateToTab: () => {},
 });
-
-type Screen = "permissions" | "smsStatus";
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === "dark";
@@ -35,12 +38,16 @@ function App(): React.JSX.Element {
   };
 
   const navigateToTab = useCallback((tab: Screen) => {
+    console.log("Navigating to tab:", tab);
     setCurrentScreen(tab);
   }, []);
 
-  const navigationContextValue = {
-    navigateToTab,
-  };
+  const navigationContextValue = React.useMemo(
+    () => ({
+      navigateToTab,
+    }),
+    [navigateToTab]
+  );
 
   return (
     <SafeAreaView style={backgroundStyle}>
@@ -49,45 +56,45 @@ function App(): React.JSX.Element {
         backgroundColor={backgroundStyle.backgroundColor}
       />
 
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            currentScreen === "permissions" && styles.activeTab,
-          ]}
-          onPress={() => setCurrentScreen("permissions")}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              currentScreen === "permissions" && styles.activeTabText,
-            ]}
-          >
-            Permissions
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            currentScreen === "smsStatus" && styles.activeTab,
-          ]}
-          onPress={() => setCurrentScreen("smsStatus")}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              currentScreen === "smsStatus" && styles.activeTabText,
-            ]}
-          >
-            Auto SMS Status
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Screen Content */}
       <NavigationContext.Provider value={navigationContextValue}>
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              currentScreen === "permissions" && styles.activeTab,
+            ]}
+            onPress={() => navigateToTab("permissions")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                currentScreen === "permissions" && styles.activeTabText,
+              ]}
+            >
+              Permissions
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              currentScreen === "smsStatus" && styles.activeTab,
+            ]}
+            onPress={() => navigateToTab("smsStatus")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                currentScreen === "smsStatus" && styles.activeTabText,
+              ]}
+            >
+              Auto SMS Status
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Screen Content */}
         {currentScreen === "permissions" ? (
           <PermissionsStatusScreen />
         ) : (

@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import CallSmsService, { SmsHistoryItem } from "../services/CallSmsService";
-import { NavigationContext } from "../../App";
+import PermissionsService from "../services/PermissionsService";
+import { NavigationContext, NavigationContextType } from "../../App";
 
 const AutoSmsStatusScreen: React.FC = () => {
   const [smsHistory, setSmsHistory] = useState<SmsHistoryItem[]>([]);
@@ -19,53 +20,69 @@ const AutoSmsStatusScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [isAutoSmsEnabled, setIsAutoSmsEnabled] = useState<boolean>(true);
   const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
+  const [permissionsGranted, setPermissionsGranted] = useState<boolean>(false);
 
   // Get navigation context
-  const { navigateToTab } = useContext(NavigationContext);
+  const navigation = useContext(NavigationContext);
+
+  /**
+   * Check if all required permissions are granted
+   */
+  const checkPermissions = useCallback(async () => {
+    const hasPermissions = await PermissionsService.areAllPermissionsGranted();
+    setPermissionsGranted(hasPermissions);
+    return hasPermissions;
+  }, []);
 
   /**
    * Load SMS history and settings
    */
-  const loadData = useCallback(async (showLoading: boolean = true) => {
-    if (showLoading) {
-      setLoading(true);
-    }
-
-    try {
-      // Load history
-      const history = await CallSmsService.getSmsHistory();
-      setSmsHistory(history);
-
-      // Load auto SMS setting
-      const autoSmsEnabled = await CallSmsService.isAutoSmsEnabled();
-      setIsAutoSmsEnabled(autoSmsEnabled);
-
-      // Check monitoring status
-      const monitoring = CallSmsService.isMonitoringCalls();
-      setIsMonitoring(monitoring);
-
-      // Start monitoring if enabled and not already monitoring
-      if (autoSmsEnabled && !monitoring) {
-        try {
-          const started = await CallSmsService.startMonitoringCalls();
-          setIsMonitoring(started);
-          if (!started) {
-            console.warn("Failed to start call monitoring");
-          }
-        } catch (err: any) {
-          console.warn("Error starting call monitoring:", err.message);
-          // Don't show alert here - just quietly fail as permissions may not be ready
-          setIsMonitoring(false);
-        }
+  const loadData = useCallback(
+    async (showLoading: boolean = true) => {
+      if (showLoading) {
+        setLoading(true);
       }
-    } catch (error) {
-      console.error("Error loading data:", error);
-      Alert.alert("Error", "Failed to load SMS history and settings");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+
+      try {
+        // Check permissions first
+        const hasPermissions = await checkPermissions();
+
+        // Load history
+        const history = await CallSmsService.getSmsHistory();
+        setSmsHistory(history);
+
+        // Load auto SMS setting
+        const autoSmsEnabled = await CallSmsService.isAutoSmsEnabled();
+        setIsAutoSmsEnabled(autoSmsEnabled);
+
+        // Check monitoring status
+        const monitoring = CallSmsService.isMonitoringCalls();
+        setIsMonitoring(monitoring);
+
+        // Start monitoring if enabled, not already monitoring, and has permissions
+        if (autoSmsEnabled && !monitoring && hasPermissions) {
+          try {
+            const started = await CallSmsService.startMonitoringCalls();
+            setIsMonitoring(started);
+            if (!started) {
+              console.warn("Failed to start call monitoring");
+            }
+          } catch (err: any) {
+            console.warn("Error starting call monitoring:", err.message);
+            // Don't show alert here - just quietly fail as permissions may not be ready
+            setIsMonitoring(false);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading data:", error);
+        Alert.alert("Error", "Failed to load SMS history and settings");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [checkPermissions]
+  );
 
   /**
    * Handle refresh
@@ -78,25 +95,35 @@ const AutoSmsStatusScreen: React.FC = () => {
   /**
    * Toggle auto SMS setting
    */
-  const toggleAutoSms = useCallback(async (value: boolean) => {
-    try {
-      setIsAutoSmsEnabled(value);
-      await CallSmsService.setAutoSmsEnabled(value);
+  const toggleAutoSms = useCallback(
+    async (value: boolean) => {
+      try {
+        setIsAutoSmsEnabled(value);
+        await CallSmsService.setAutoSmsEnabled(value);
 
-      if (value) {
-        // Start monitoring if enabling
-        const started = await CallSmsService.startMonitoringCalls();
-        setIsMonitoring(started);
-      } else {
-        // Stop monitoring if disabling
-        await CallSmsService.stopMonitoringCalls();
-        setIsMonitoring(false);
+        if (value) {
+          // Check permissions before starting monitoring
+          const hasPermissions = await checkPermissions();
+          if (hasPermissions) {
+            // Start monitoring if enabling and has permissions
+            const started = await CallSmsService.startMonitoringCalls();
+            setIsMonitoring(started);
+          } else {
+            // Show message about needing permissions
+            console.warn("Cannot start monitoring: Missing permissions");
+          }
+        } else {
+          // Stop monitoring if disabling
+          await CallSmsService.stopMonitoringCalls();
+          setIsMonitoring(false);
+        }
+      } catch (error) {
+        console.error("Error toggling auto SMS:", error);
+        Alert.alert("Error", "Failed to change auto SMS setting");
       }
-    } catch (error) {
-      console.error("Error toggling auto SMS:", error);
-      Alert.alert("Error", "Failed to change auto SMS setting");
-    }
-  }, []);
+    },
+    [checkPermissions]
+  );
 
   /**
    * Clear SMS history
@@ -147,11 +174,24 @@ const AutoSmsStatusScreen: React.FC = () => {
   };
 
   /**
-   * Setup listeners
+   * Add a function to handle the permission button tap
+   */
+  const handleGoToPermissions = useCallback(() => {
+    console.log("Going to permissions tab");
+    navigation.navigateToTab("permissions");
+  }, [navigation]);
+
+  /**
+   * Setup listeners and load initial data
    */
   useEffect(() => {
     // Load initial data
     loadData();
+
+    // Set up periodic permission checks (every 2 seconds when the screen is active)
+    const permissionCheckInterval = setInterval(() => {
+      checkPermissions();
+    }, 2000);
 
     // Setup event listeners
     const onSmsSent = () => loadData(false);
@@ -168,14 +208,15 @@ const AutoSmsStatusScreen: React.FC = () => {
     CallSmsService.addListener("historyCleared", onHistoryCleared);
     CallSmsService.addListener("settingsChanged", onSettingsChanged);
 
-    // Cleanup listeners
+    // Cleanup listeners and interval
     return () => {
+      clearInterval(permissionCheckInterval);
       CallSmsService.removeListener("smsSent", onSmsSent);
       CallSmsService.removeListener("smsError", onSmsError);
       CallSmsService.removeListener("historyCleared", onHistoryCleared);
       CallSmsService.removeListener("settingsChanged", onSettingsChanged);
     };
-  }, [loadData]);
+  }, [loadData, checkPermissions]);
 
   /**
    * Render item
@@ -261,7 +302,7 @@ const AutoSmsStatusScreen: React.FC = () => {
         </Text>
       </View>
 
-      {!isMonitoring && isAutoSmsEnabled && (
+      {!permissionsGranted && isAutoSmsEnabled && (
         <View style={styles.warningContainer}>
           <Text style={styles.warningText}>
             ⚠️ Please grant all required permissions in the Permissions tab
@@ -269,7 +310,7 @@ const AutoSmsStatusScreen: React.FC = () => {
           </Text>
           <TouchableOpacity
             style={styles.permissionsButton}
-            onPress={() => navigateToTab("permissions")}
+            onPress={handleGoToPermissions}
           >
             <Text style={styles.permissionsButtonText}>Go to Permissions</Text>
           </TouchableOpacity>

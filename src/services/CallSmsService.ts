@@ -1,5 +1,6 @@
 import { NativeModules, Platform, NativeEventEmitter } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import PermissionsService from "./PermissionsService";
 
 const { CallSmsModule } = NativeModules;
 const eventEmitter = new NativeEventEmitter(CallSmsModule);
@@ -115,11 +116,26 @@ class CallSmsService {
   }
 
   /**
+   * Check if all required permissions are granted
+   */
+  async hasRequiredPermissions(): Promise<boolean> {
+    return await PermissionsService.areAllPermissionsGranted();
+  }
+
+  /**
    * Start monitoring for missed calls
    */
   async startMonitoringCalls(): Promise<boolean> {
     if (Platform.OS !== "android") {
       console.warn("Call monitoring is only supported on Android");
+      return false;
+    }
+
+    // Check permissions first
+    if (!(await this.hasRequiredPermissions())) {
+      console.warn(
+        "Cannot start call monitoring: Missing required permissions. Please grant all permissions first."
+      );
       return false;
     }
 
@@ -175,6 +191,14 @@ class CallSmsService {
       return false;
     }
 
+    // Check permissions first
+    if (!(await this.hasRequiredPermissions())) {
+      console.warn(
+        "Cannot send SMS: Missing required permissions. Please grant all permissions first."
+      );
+      return false;
+    }
+
     try {
       return await CallSmsModule.sendSms(phoneNumber, message);
     } catch (error) {
@@ -189,6 +213,15 @@ class CallSmsService {
    */
   async getRecentCalls(days: number = 7): Promise<any[]> {
     if (Platform.OS !== "android") {
+      return [];
+    }
+
+    // Check permissions first
+    const callLogPermission = await PermissionsService.checkPermission(
+      "callLog"
+    );
+    if (callLogPermission !== "granted") {
+      console.warn("Cannot get call log: Missing required permissions.");
       return [];
     }
 

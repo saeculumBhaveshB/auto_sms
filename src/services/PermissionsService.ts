@@ -9,130 +9,205 @@ import {
   Permission,
 } from "react-native-permissions";
 
-// Define permission types
-export type PermissionType =
-  | "READ_CALL_LOG"
-  | "CALL_PHONE"
-  | "ANSWER_PHONE_CALLS"
-  | "READ_CONTACTS"
-  | "SEND_SMS"
-  | "READ_SMS"
-  | "POST_NOTIFICATIONS";
+// Keys for storing permission status
+const PERMISSION_STORAGE_KEY_PREFIX = "@AutoSMS:Permission:";
 
-// Interface for permission status
-export interface PermissionsStatus {
-  READ_CALL_LOG: boolean;
-  CALL_PHONE: boolean;
-  ANSWER_PHONE_CALLS: boolean;
-  READ_CONTACTS: boolean;
-  SEND_SMS: boolean;
-  READ_SMS: boolean;
-  POST_NOTIFICATIONS: boolean;
+// Define our required permissions
+export type PermissionType =
+  | "callLog"
+  | "phoneState"
+  | "sendSms"
+  | "readSms"
+  | "readContacts";
+
+// Define permission info for UI
+export interface PermissionInfo {
+  key: PermissionType;
+  name: string;
+  description: string;
+  androidPermission: Permission;
 }
 
-// Default permission status
-const DEFAULT_PERMISSIONS_STATUS: PermissionsStatus = {
-  READ_CALL_LOG: false,
-  CALL_PHONE: false,
-  ANSWER_PHONE_CALLS: false,
-  READ_CONTACTS: false,
-  SEND_SMS: false,
-  READ_SMS: false,
-  POST_NOTIFICATIONS: false,
-};
-
-// Storage key for permission status
-const PERMISSIONS_STORAGE_KEY = "@AutoSMS:PermissionsStatus";
-
-// Map our permission types to react-native-permissions permission types
-const permissionMapping: Record<
-  string,
-  Record<PermissionType, Permission | string>
-> = {
-  android: {
-    READ_CALL_LOG: PERMISSIONS.ANDROID.READ_CALL_LOG,
-    CALL_PHONE: PERMISSIONS.ANDROID.CALL_PHONE,
-    ANSWER_PHONE_CALLS: PERMISSIONS.ANDROID.ANSWER_PHONE_CALLS,
-    READ_CONTACTS: PERMISSIONS.ANDROID.READ_CONTACTS,
-    SEND_SMS: PERMISSIONS.ANDROID.SEND_SMS,
-    READ_SMS: PERMISSIONS.ANDROID.READ_SMS,
-    POST_NOTIFICATIONS: "android.permission.POST_NOTIFICATIONS", // Add manually if not available
+// All required permissions for the app
+export const REQUIRED_PERMISSIONS: PermissionInfo[] = [
+  {
+    key: "callLog",
+    name: "Call Log",
+    description: "Required to detect missed calls",
+    androidPermission: PERMISSIONS.ANDROID.READ_CALL_LOG,
   },
-  ios: {
-    // iOS doesn't have the same permissions, but we'll define placeholders
-    READ_CALL_LOG: "unsupported",
-    CALL_PHONE: "unsupported",
-    ANSWER_PHONE_CALLS: "unsupported",
-    READ_CONTACTS: PERMISSIONS.IOS.CONTACTS,
-    SEND_SMS: "unsupported",
-    READ_SMS: "unsupported",
-    POST_NOTIFICATIONS: "ios.permission.NOTIFICATIONS", // Add manually if not available
+  {
+    key: "phoneState",
+    name: "Phone State",
+    description: "Required to monitor incoming calls",
+    androidPermission: PERMISSIONS.ANDROID.READ_PHONE_STATE,
   },
-  default: {
-    READ_CALL_LOG: "unsupported",
-    CALL_PHONE: "unsupported",
-    ANSWER_PHONE_CALLS: "unsupported",
-    READ_CONTACTS: "unsupported",
-    SEND_SMS: "unsupported",
-    READ_SMS: "unsupported",
-    POST_NOTIFICATIONS: "unsupported",
+  {
+    key: "sendSms",
+    name: "Send SMS",
+    description: "Required to send automatic SMS messages",
+    androidPermission: PERMISSIONS.ANDROID.SEND_SMS,
   },
-};
+  {
+    key: "readSms",
+    name: "Read SMS",
+    description: "Required to verify SMS status",
+    androidPermission: PERMISSIONS.ANDROID.READ_SMS,
+  },
+  {
+    key: "readContacts",
+    name: "Read Contacts",
+    description: "Required to display contact names",
+    androidPermission: PERMISSIONS.ANDROID.READ_CONTACTS,
+  },
+];
 
-// Get the correct permission mapping based on platform
-const currentMapping =
-  Platform.select(permissionMapping) || permissionMapping.default;
+// Define possible permission states
+export type PermissionStatus =
+  | "granted"
+  | "denied"
+  | "blocked"
+  | "unavailable"
+  | "limited"
+  | "never_ask_again";
 
 /**
- * Class that handles all permission-related operations
+ * Service to manage app permissions
  */
 class PermissionsService {
   /**
-   * Check if a specific permission is granted
-   * @param permission The permission to check
-   * @returns Promise resolving to boolean indicating if permission is granted
+   * Check a single permission status
    */
-  async checkPermission(permission: PermissionType): Promise<boolean> {
-    if (
-      Platform.OS !== "android" ||
-      currentMapping[permission] === "unsupported"
-    ) {
-      return false;
+  async checkPermission(
+    permissionType: PermissionType
+  ): Promise<PermissionStatus> {
+    // Only Android is supported
+    if (Platform.OS !== "android") {
+      return "unavailable";
+    }
+
+    const permissionInfo = REQUIRED_PERMISSIONS.find(
+      (p) => p.key === permissionType
+    );
+    if (!permissionInfo) {
+      throw new Error(`Unknown permission type: ${permissionType}`);
     }
 
     try {
-      const result = await check(currentMapping[permission] as Permission);
-      return result === RESULTS.GRANTED;
+      const result = await check(permissionInfo.androidPermission);
+      return this.mapPermissionResult(result);
     } catch (error) {
-      console.error(`Error checking permission ${permission}:`, error);
-      return false;
+      console.error(`Error checking permission ${permissionType}:`, error);
+      return "unavailable";
     }
   }
 
   /**
-   * Request a specific permission
-   * @param permission The permission to request
-   * @returns Promise resolving to boolean indicating if permission was granted
+   * Request a single permission
    */
-  async requestPermission(permission: PermissionType): Promise<boolean> {
-    if (
-      Platform.OS !== "android" ||
-      currentMapping[permission] === "unsupported"
-    ) {
-      return false;
+  async requestPermission(
+    permissionType: PermissionType
+  ): Promise<PermissionStatus> {
+    // Only Android is supported
+    if (Platform.OS !== "android") {
+      return "unavailable";
+    }
+
+    const permissionInfo = REQUIRED_PERMISSIONS.find(
+      (p) => p.key === permissionType
+    );
+    if (!permissionInfo) {
+      throw new Error(`Unknown permission type: ${permissionType}`);
     }
 
     try {
-      const result = await request(currentMapping[permission] as Permission);
-      const granted = result === RESULTS.GRANTED;
+      const result = await request(permissionInfo.androidPermission);
+      const status = this.mapPermissionResult(result);
 
-      // Save the status to AsyncStorage
-      await this.savePermissionStatus(permission, granted);
+      // Store the result
+      await this.storePermissionStatus(permissionType, status);
 
-      return granted;
+      return status;
     } catch (error) {
-      console.error(`Error requesting permission ${permission}:`, error);
-      return false;
+      console.error(`Error requesting permission ${permissionType}:`, error);
+      return "unavailable";
+    }
+  }
+
+  /**
+   * Check if all required permissions are granted
+   */
+  async areAllPermissionsGranted(): Promise<boolean> {
+    const criticalPermissions: PermissionType[] = [
+      "callLog",
+      "phoneState",
+      "sendSms",
+    ];
+
+    for (const permissionType of criticalPermissions) {
+      const status = await this.checkPermission(permissionType);
+      if (status !== "granted") {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Store permission status in AsyncStorage
+   */
+  private async storePermissionStatus(
+    permissionType: PermissionType,
+    status: PermissionStatus
+  ): Promise<void> {
+    try {
+      const key = `${PERMISSION_STORAGE_KEY_PREFIX}${permissionType}`;
+      await AsyncStorage.setItem(key, status);
+    } catch (error) {
+      console.error(
+        `Error storing permission status for ${permissionType}:`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Get stored permission status from AsyncStorage
+   */
+  async getStoredPermissionStatus(
+    permissionType: PermissionType
+  ): Promise<PermissionStatus | null> {
+    try {
+      const key = `${PERMISSION_STORAGE_KEY_PREFIX}${permissionType}`;
+      const status = await AsyncStorage.getItem(key);
+      return status as PermissionStatus | null;
+    } catch (error) {
+      console.error(
+        `Error getting stored permission status for ${permissionType}:`,
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Map react-native-permissions result to our PermissionStatus type
+   */
+  private mapPermissionResult(result: string): PermissionStatus {
+    switch (result) {
+      case RESULTS.GRANTED:
+        return "granted";
+      case RESULTS.DENIED:
+        return "denied";
+      case RESULTS.BLOCKED:
+        return "blocked";
+      case RESULTS.UNAVAILABLE:
+        return "unavailable";
+      case RESULTS.LIMITED:
+        return "limited";
+      default:
+        return "unavailable";
     }
   }
 
@@ -147,52 +222,6 @@ class PermissionsService {
     } catch (error) {
       console.error("Error opening settings:", error);
       return false;
-    }
-  }
-
-  /**
-   * Save permission status to AsyncStorage
-   * @param permission The permission to save
-   * @param granted Whether the permission is granted
-   */
-  async savePermissionStatus(
-    permission: PermissionType,
-    granted: boolean
-  ): Promise<void> {
-    try {
-      // Get current status
-      const currentStatus = await this.getPermissionsStatus();
-
-      // Update with new status
-      const updatedStatus = {
-        ...currentStatus,
-        [permission]: granted,
-      };
-
-      // Save to AsyncStorage
-      await AsyncStorage.setItem(
-        PERMISSIONS_STORAGE_KEY,
-        JSON.stringify(updatedStatus)
-      );
-    } catch (error) {
-      console.error("Error saving permission status:", error);
-    }
-  }
-
-  /**
-   * Get all permissions status
-   * @returns Promise resolving to PermissionsStatus object
-   */
-  async getPermissionsStatus(): Promise<PermissionsStatus> {
-    try {
-      const storedStatus = await AsyncStorage.getItem(PERMISSIONS_STORAGE_KEY);
-      if (storedStatus) {
-        return JSON.parse(storedStatus) as PermissionsStatus;
-      }
-      return DEFAULT_PERMISSIONS_STATUS;
-    } catch (error) {
-      console.error("Error getting permissions status:", error);
-      return DEFAULT_PERMISSIONS_STATUS;
     }
   }
 

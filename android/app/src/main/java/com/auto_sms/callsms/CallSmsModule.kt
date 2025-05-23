@@ -54,9 +54,10 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     fun startMonitoringCalls(promise: Promise) {
         if (!hasRequiredPermissions()) {
             val missingPermissions = getMissingPermissions()
+            Log.e(TAG, "Missing permissions for call monitoring: $missingPermissions")
             promise.reject(
                 "PERMISSIONS_DENIED", 
-                "The app doesn't have the required permissions: $missingPermissions. Please grant these permissions first."
+                "Missing permissions for call monitoring. Please grant all required permissions (Call Log, Phone State, SMS) in the Permissions screen."
             )
             return
         }
@@ -205,7 +206,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun sendSms(phoneNumber: String, message: String, promise: Promise) {
         if (!hasRequiredPermissions()) {
-            promise.reject("PERMISSIONS_DENIED", "The app doesn't have the required permissions")
+            val missingPermissions = getMissingPermissions()
+            Log.e(TAG, "Missing permissions for sending SMS: $missingPermissions")
+            promise.reject(
+                "PERMISSIONS_DENIED", 
+                "Cannot send SMS: Missing required permissions. Please grant all permissions first."
+            )
             return
         }
 
@@ -336,7 +342,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun getRecentCalls(days: Int, promise: Promise) {
         if (!hasRequiredPermissions()) {
-            promise.reject("PERMISSIONS_DENIED", "The app doesn't have the required permissions")
+            val missingPermissions = getMissingPermissions()
+            Log.e(TAG, "Missing permissions for getting call log: $missingPermissions")
+            promise.reject(
+                "PERMISSIONS_DENIED", 
+                "Cannot access call log: Missing required permissions. Please grant all permissions first."
+            )
             return
         }
 
