@@ -22,6 +22,8 @@ const AutoSmsStatusScreen: React.FC = () => {
   const [isAutoSmsEnabled, setIsAutoSmsEnabled] = useState<boolean>(true);
   const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
   const [permissionsGranted, setPermissionsGranted] = useState<boolean>(false);
+  const [isAIEnabled, setIsAIEnabled] = useState<boolean>(false);
+  const [initialSmsMessage, setInitialSmsMessage] = useState<string>("");
 
   // Get navigation context
   const navigation = useContext(NavigationContext);
@@ -219,11 +221,57 @@ const AutoSmsStatusScreen: React.FC = () => {
   }, [navigation]);
 
   /**
+   * Load AI settings
+   */
+  const loadAISettings = useCallback(async () => {
+    try {
+      // Load AI enabled setting
+      const aiEnabled = await CallSmsService.isAIEnabled();
+      setIsAIEnabled(aiEnabled);
+
+      // Load initial SMS message
+      const message = await CallSmsService.getInitialSmsMessage();
+      setInitialSmsMessage(message);
+    } catch (error) {
+      console.error("Error loading AI settings:", error);
+    }
+  }, []);
+
+  /**
+   * Toggle AI SMS setting
+   */
+  const toggleAI = useCallback(async (value: boolean) => {
+    try {
+      setIsAIEnabled(value);
+      await CallSmsService.setAIEnabled(value);
+    } catch (error) {
+      console.error("Error toggling AI SMS:", error);
+      Alert.alert("Error", "Failed to change AI SMS setting");
+    }
+  }, []);
+
+  /**
+   * Set initial SMS message
+   */
+  const handleSetInitialMessage = useCallback(async (message: string) => {
+    try {
+      await CallSmsService.setInitialSmsMessage(message);
+      setInitialSmsMessage(message);
+    } catch (error) {
+      console.error("Error setting initial SMS message:", error);
+      Alert.alert("Error", "Failed to set initial SMS message");
+    }
+  }, []);
+
+  /**
    * Setup listeners and load initial data
    */
   useEffect(() => {
     // Load initial data
     loadData();
+
+    // Load AI settings
+    loadAISettings();
 
     // Set up periodic permission checks (every 2 seconds when the screen is active)
     const permissionCheckInterval = setInterval(() => {
@@ -266,7 +314,13 @@ const AutoSmsStatusScreen: React.FC = () => {
       CallSmsService.removeListener("settingsChanged", onSettingsChanged);
       CallSmsService.removeListener("historyUpdated", onHistoryUpdated);
     };
-  }, [loadData, checkPermissions, handleAppStateChange, syncNativeHistory]);
+  }, [
+    loadData,
+    checkPermissions,
+    handleAppStateChange,
+    syncNativeHistory,
+    loadAISettings,
+  ]);
 
   /**
    * Render item
@@ -350,6 +404,33 @@ const AutoSmsStatusScreen: React.FC = () => {
             ? "⚠️ Not monitoring calls"
             : "● Feature disabled"}
         </Text>
+
+        <View style={styles.divider} />
+
+        <View style={styles.settingRow}>
+          <Text style={styles.settingText}>Enable AI responses</Text>
+          <Switch
+            value={isAIEnabled}
+            onValueChange={toggleAI}
+            trackColor={{ false: "#767577", true: "#81b0ff" }}
+            thumbColor={isAIEnabled ? "#4caf50" : "#f4f3f4"}
+          />
+        </View>
+
+        <Text style={styles.aiInfoText}>
+          {isAIEnabled
+            ? "✓ AI will respond to incoming SMS messages"
+            : "● AI responses disabled"}
+        </Text>
+
+        {isAIEnabled && (
+          <TouchableOpacity
+            style={styles.aiSetupButton}
+            onPress={() => navigation.navigateToTab("aiDocument")}
+          >
+            <Text style={styles.aiSetupButtonText}>Configure AI</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {!permissionsGranted && isAutoSmsEnabled && (
@@ -555,6 +636,29 @@ const styles = StyleSheet.create({
   },
   permissionsButtonText: {
     color: "#212529",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#e0e0e0",
+    marginVertical: 12,
+  },
+  aiInfoText: {
+    fontSize: 14,
+    color: "#555",
+    marginTop: 4,
+  },
+  aiSetupButton: {
+    backgroundColor: "#4caf50",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  aiSetupButtonText: {
+    color: "#fff",
     fontWeight: "bold",
     fontSize: 14,
   },

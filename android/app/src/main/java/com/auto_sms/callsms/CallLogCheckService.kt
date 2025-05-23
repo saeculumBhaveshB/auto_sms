@@ -29,6 +29,8 @@ class CallLogCheckService : Service() {
     // Constants
     private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
+    private val AI_SMS_ENABLED_KEY = "@AutoSMS:AIEnabled"
+    private val INITIAL_SMS_MESSAGE_KEY = "@AutoSMS:InitialMessage"
     private val SMS_HISTORY_STORAGE_KEY = "@AutoSMS:SmsHistory"
     private val LAST_CHECK_TIME_KEY = "last_call_log_check_time"
     
@@ -215,8 +217,17 @@ class CallLogCheckService : Service() {
      */
     private fun sendSmsForMissedCall(phoneNumber: String) {
         try {
+            // Check if AI mode is enabled
+            val aiEnabled = sharedPrefs.getBoolean(AI_SMS_ENABLED_KEY, false)
+            
+            // Get the appropriate message
+            val smsMessage = if (aiEnabled) {
+                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "AI: I am busy, available only for chat. How may I help you?") ?: DEFAULT_MESSAGE
+            } else {
+                DEFAULT_MESSAGE
+            }
+            
             val smsManager = SmsManager.getDefault()
-            val smsMessage = DEFAULT_MESSAGE
             
             // Split message if it's too long
             val parts = smsManager.divideMessage(smsMessage)

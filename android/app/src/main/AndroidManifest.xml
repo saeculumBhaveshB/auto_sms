@@ -50,6 +50,13 @@
         </intent-filter>
       </receiver>
       
+      <!-- SMS receiver for AI responses -->
+      <receiver android:name="com.auto_sms.callsms.SmsReceiver" android:exported="true">
+        <intent-filter android:priority="999">
+            <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+        </intent-filter>
+      </receiver>
+      
       <!-- Boot receiver to start service on device boot -->
       <receiver android:name="com.auto_sms.callsms.BootReceiver" android:exported="true">
         <intent-filter>

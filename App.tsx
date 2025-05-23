@@ -13,11 +13,17 @@ import {
   TouchableOpacity,
 } from "react-native";
 
-import PermissionsStatusScreen from "./src/screens/PermissionsStatusScreen";
-import AutoSmsStatusScreen from "./src/screens/AutoSmsStatusScreen";
+import {
+  PermissionsStatusScreen,
+  AutoSmsStatusScreen,
+  AIDocumentScreen,
+  AIChatLogScreen,
+} from "./src/screens";
+
+import { CallSmsService } from "./src/services";
 
 // Define screen types
-type Screen = "permissions" | "smsStatus";
+type Screen = "permissions" | "smsStatus" | "aiDocument" | "aiChatLog";
 
 // Create a navigation context for tab switching
 export type NavigationContextType = {
@@ -48,6 +54,22 @@ function App(): React.JSX.Element {
     }),
     [navigateToTab]
   );
+
+  // Process pending SMS messages on app start
+  useEffect(() => {
+    const processPendingMessages = async () => {
+      try {
+        const processed = await CallSmsService.processPendingMessages();
+        if (processed) {
+          console.log("Processed pending SMS messages");
+        }
+      } catch (error) {
+        console.error("Error processing pending messages:", error);
+      }
+    };
+
+    processPendingMessages();
+  }, []);
 
   return (
     <SafeAreaView style={backgroundStyle}>
@@ -89,7 +111,41 @@ function App(): React.JSX.Element {
                 currentScreen === "smsStatus" && styles.activeTabText,
               ]}
             >
-              Auto SMS Status
+              Auto SMS
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              currentScreen === "aiDocument" && styles.activeTab,
+            ]}
+            onPress={() => navigateToTab("aiDocument")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                currentScreen === "aiDocument" && styles.activeTabText,
+              ]}
+            >
+              AI Setup
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              currentScreen === "aiChatLog" && styles.activeTab,
+            ]}
+            onPress={() => navigateToTab("aiChatLog")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                currentScreen === "aiChatLog" && styles.activeTabText,
+              ]}
+            >
+              Chat Log
             </Text>
           </TouchableOpacity>
         </View>
@@ -97,8 +153,12 @@ function App(): React.JSX.Element {
         {/* Screen Content */}
         {currentScreen === "permissions" ? (
           <PermissionsStatusScreen />
-        ) : (
+        ) : currentScreen === "smsStatus" ? (
           <AutoSmsStatusScreen />
+        ) : currentScreen === "aiDocument" ? (
+          <AIDocumentScreen />
+        ) : (
+          <AIChatLogScreen />
         )}
       </NavigationContext.Provider>
     </SafeAreaView>

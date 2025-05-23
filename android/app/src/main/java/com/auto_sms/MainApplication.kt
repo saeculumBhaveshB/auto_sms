@@ -13,6 +13,7 @@ import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 import com.auto_sms.permissions.PermissionsPackage
 import com.auto_sms.callsms.CallSmsPackage
+import com.auto_sms.docparser.DocParserPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -24,6 +25,7 @@ class MainApplication : Application(), ReactApplication {
               // add(MyReactNativePackage())
               add(PermissionsPackage())
               add(CallSmsPackage())
+              add(DocParserPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

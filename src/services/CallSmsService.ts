@@ -1,6 +1,7 @@
 import { NativeModules, Platform, NativeEventEmitter } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import PermissionsService from "./PermissionsService";
+import AIService from "./AIService";
 
 const { CallSmsModule } = NativeModules;
 const eventEmitter = new NativeEventEmitter(CallSmsModule);
@@ -25,6 +26,8 @@ export const CALL_TYPES = {
 // SMS history storage key
 const SMS_HISTORY_STORAGE_KEY = "@AutoSMS:SmsHistory";
 const AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled";
+const AI_SMS_ENABLED_KEY = "@AutoSMS:AIEnabled";
+const INITIAL_SMS_MESSAGE_KEY = "@AutoSMS:InitialMessage";
 
 /**
  * Service to handle call monitoring and SMS sending
@@ -32,6 +35,8 @@ const AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled";
 class CallSmsService {
   private listeners: { [key: string]: (() => void)[] } = {};
   private isMonitoring: boolean = false;
+  private defaultInitialMessage: string =
+    "AI: I am busy, available only for chat. How may I help you?";
 
   constructor() {
     // Initialize event listeners
@@ -47,6 +52,9 @@ class CallSmsService {
 
     // SMS error event
     eventEmitter.addListener("onSmsError", this.handleSmsError);
+
+    // New SMS received event
+    eventEmitter.addListener("onSmsReceived", this.handleSmsReceived);
   }
 
   /**
@@ -92,6 +100,33 @@ class CallSmsService {
 
     // Notify listeners
     this.notifyListeners("smsError", historyItem);
+  };
+
+  /**
+   * Handle incoming SMS message
+   */
+  private handleSmsReceived = async (data: any) => {
+    console.log("SMS received:", data);
+
+    // If AI SMS is not enabled, just log the message
+    const aiEnabled = await this.isAIEnabled();
+    if (!aiEnabled) {
+      console.log("AI SMS is disabled. Not responding to incoming message.");
+      return;
+    }
+
+    try {
+      // Check if this is a response to a missed call SMS we sent earlier
+      const { phoneNumber, message } = data;
+
+      // Get the AI-generated response
+      const aiResponse = await AIService.generateResponse(phoneNumber, message);
+
+      // Send the AI response
+      await this.sendSms(phoneNumber, aiResponse);
+    } catch (error) {
+      console.error("Error handling incoming SMS:", error);
+    }
   };
 
   /**
@@ -350,6 +385,93 @@ class CallSmsService {
   }
 
   /**
+   * Set initial SMS message
+   */
+  async setInitialSmsMessage(message: string): Promise<void> {
+    try {
+      await AsyncStorage.setItem(INITIAL_SMS_MESSAGE_KEY, message);
+    } catch (error) {
+      console.error("Error setting initial SMS message:", error);
+    }
+  }
+
+  /**
+   * Get initial SMS message
+   */
+  async getInitialSmsMessage(): Promise<string> {
+    try {
+      const message = await AsyncStorage.getItem(INITIAL_SMS_MESSAGE_KEY);
+      return message || this.defaultInitialMessage;
+    } catch (error) {
+      console.error("Error getting initial SMS message:", error);
+      return this.defaultInitialMessage;
+    }
+  }
+
+  /**
+   * Set AI SMS enabled setting
+   */
+  async setAIEnabled(enabled: boolean): Promise<void> {
+    try {
+      // Save setting to AsyncStorage
+      await AsyncStorage.setItem(AI_SMS_ENABLED_KEY, enabled.toString());
+
+      // Apply setting to native module
+      if (Platform.OS === "android") {
+        await NativeModules.CallSmsModule.setAIEnabled(enabled);
+      }
+
+      this.notifyListeners("settingsChanged", { aiEnabled: enabled });
+    } catch (error) {
+      console.error("Error setting AI SMS enabled:", error);
+    }
+  }
+
+  /**
+   * Check if AI SMS is enabled
+   */
+  async isAIEnabled(): Promise<boolean> {
+    try {
+      if (Platform.OS === "android") {
+        try {
+          return await NativeModules.CallSmsModule.isAIEnabled();
+        } catch (e) {
+          console.warn(
+            "Error getting AI setting from native module, falling back to AsyncStorage",
+            e
+          );
+        }
+      }
+
+      // Fallback to AsyncStorage
+      const value = await AsyncStorage.getItem(AI_SMS_ENABLED_KEY);
+      return value === null ? false : value === "true"; // Default to false
+    } catch (error) {
+      console.error("Error checking if AI SMS is enabled:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Send an SMS message for a missed call with AI support
+   */
+  async sendMissedCallSms(phoneNumber: string): Promise<boolean> {
+    try {
+      // Check if AI is enabled
+      const aiEnabled = await this.isAIEnabled();
+
+      // Get the appropriate message
+      const message = await this.getInitialSmsMessage();
+
+      // Send the message
+      return await this.sendSms(phoneNumber, message);
+    } catch (error) {
+      console.error("Error sending missed call SMS:", error);
+      return false;
+    }
+  }
+
+  /**
    * Add a listener for a specific event
    */
   addListener(event: string, callback: () => void): void {
@@ -377,6 +499,22 @@ class CallSmsService {
   private notifyListeners(event: string, data: any): void {
     if (this.listeners[event]) {
       this.listeners[event].forEach((callback) => callback());
+    }
+  }
+
+  /**
+   * Process any pending SMS messages that were received when the app was not active
+   */
+  async processPendingMessages(): Promise<boolean> {
+    if (Platform.OS !== "android") {
+      return false;
+    }
+
+    try {
+      return await NativeModules.CallSmsModule.processPendingMessages();
+    } catch (error) {
+      console.error("Error processing pending messages:", error);
+      return false;
     }
   }
 }

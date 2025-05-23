@@ -107,6 +107,9 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             reactApplicationContext.registerReceiver(callReceiver, intentFilter)
             isMonitoringCalls = true
             
+            // Register SMS receiver for AI responses
+            registerSmsReceiver()
+            
             // Save monitoring state to SharedPreferences
             saveMonitoringStatus(true)
             
@@ -569,6 +572,146 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             Log.e(TAG, "Error getting SMS history: ${e.message}", e)
             promise.reject("GET_HISTORY_ERROR", "Failed to get SMS history: ${e.message}")
+        }
+    }
+
+    @ReactMethod
+    fun isAIEnabled(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val enabled = sharedPrefs.getBoolean("@AutoSMS:AIEnabled", false)
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting AI SMS enabled: ${e.message}")
+            promise.reject("GET_AI_SMS_ERROR", "Failed to get AI SMS enabled: ${e.message}")
+        }
+    }
+
+    @ReactMethod
+    fun setAIEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            // Save setting to SharedPreferences for use when app is killed
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("@AutoSMS:AIEnabled", enabled).apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting AI SMS enabled: ${e.message}")
+            promise.reject("SET_AI_SMS_ERROR", "Failed to set AI SMS enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun getInitialSmsMessage(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val message = sharedPrefs.getString("@AutoSMS:InitialMessage", "AI: I am busy, available only for chat. How may I help you?")
+            promise.resolve(message)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting initial SMS message: ${e.message}")
+            promise.reject("GET_INITIAL_SMS_ERROR", "Failed to get initial SMS message: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setInitialSmsMessage(message: String, promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putString("@AutoSMS:InitialMessage", message).apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting initial SMS message: ${e.message}")
+            promise.reject("SET_INITIAL_SMS_ERROR", "Failed to set initial SMS message: ${e.message}")
+        }
+    }
+
+    private fun registerSmsReceiver() {
+        try {
+            // Register for incoming SMS messages
+            val smsIntentFilter = IntentFilter()
+            smsIntentFilter.addAction(Telephony.Sms.Intents.SMS_RECEIVED_ACTION)
+            
+            val smsReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
+                        // Check if AI SMS is enabled
+                        val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+                        val aiEnabled = sharedPrefs.getBoolean("@AutoSMS:AIEnabled", false)
+                        
+                        if (!aiEnabled) {
+                            Log.d(TAG, "AI SMS is disabled. Ignoring incoming message.")
+                            return
+                        }
+                        
+                        // Process incoming SMS
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                            for (smsMessage in Telephony.Sms.Intents.getMessagesFromIntent(intent)) {
+                                val phoneNumber = smsMessage.originatingAddress
+                                val messageBody = smsMessage.messageBody
+                                
+                                Log.d(TAG, "Received SMS from $phoneNumber: $messageBody")
+                                
+                                // Emit event to React Native
+                                val eventData = Arguments.createMap().apply {
+                                    putString("phoneNumber", phoneNumber)
+                                    putString("message", messageBody)
+                                    putDouble("timestamp", System.currentTimeMillis().toDouble())
+                                }
+                                
+                                sendEvent("onSmsReceived", eventData)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            reactApplicationContext.registerReceiver(smsReceiver, smsIntentFilter)
+            Log.d(TAG, "SMS receiver registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering SMS receiver: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun processPendingMessages(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val pendingMessages = sharedPrefs.getStringSet("pendingIncomingSms", HashSet()) ?: HashSet()
+            
+            if (pendingMessages.isEmpty()) {
+                promise.resolve(false)
+                return
+            }
+            
+            Log.d(TAG, "Processing ${pendingMessages.size} pending SMS messages")
+            
+            for (pendingMessage in pendingMessages) {
+                try {
+                    val parts = pendingMessage.split(":", limit = 3)
+                    if (parts.size == 3) {
+                        val phoneNumber = parts[0]
+                        val message = parts[1]
+                        
+                        // Emit event to React Native
+                        val eventData = Arguments.createMap().apply {
+                            putString("phoneNumber", phoneNumber)
+                            putString("message", message)
+                            putDouble("timestamp", System.currentTimeMillis().toDouble())
+                        }
+                        
+                        sendEvent("onSmsReceived", eventData)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing pending message: ${e.message}")
+                }
+            }
+            
+            // Clear pending messages
+            sharedPrefs.edit().putStringSet("pendingIncomingSms", HashSet()).apply()
+            
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing pending messages: ${e.message}")
+            promise.reject("PROCESS_PENDING_ERROR", "Failed to process pending messages: ${e.message}")
         }
     }
 } 

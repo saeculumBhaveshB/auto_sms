@@ -111,6 +111,16 @@ android {
         pickFirst 'lib/arm64-v8a/libc++_shared.so'
         pickFirst 'lib/x86/libc++_shared.so'
         pickFirst 'lib/x86_64/libc++_shared.so'
+        
+        // Exclude duplicate META-INF files
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/license.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/notice.txt'
+        exclude 'META-INF/*.kotlin_module'
     }
 }
 
@@ -127,4 +137,18 @@ dependencies {
     // Add androidx.core support for NotificationCompat
     implementation("androidx.core:core:1.12.0")
     implementation("androidx.core:core-ktx:1.12.0")
+    
+    // Apache POI for document parsing
+    implementation("org.apache.poi:poi:5.2.3")
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+    implementation("org.apache.poi:poi-scratchpad:5.2.3")
+    // Additional required dependencies for Apache POI
+    implementation("org.apache.commons:commons-compress:1.25.0")
+    implementation("org.apache.commons:commons-collections4:4.4")
+    implementation("commons-io:commons-io:2.15.1")
+    implementation("org.apache.logging.log4j:log4j-api:2.22.0")
+    implementation("org.apache.logging.log4j:log4j-core:2.22.0")
+    
+    // Document picker dependencies
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }
