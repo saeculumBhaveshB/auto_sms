@@ -1,5 +1,13 @@
-import { NativeModules, Platform } from "react-native";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  PERMISSIONS,
+  RESULTS,
+  check,
+  request,
+  openSettings,
+  Permission,
+} from "react-native-permissions";
 
 // Define permission types
 export type PermissionType =
@@ -36,8 +44,44 @@ const DEFAULT_PERMISSIONS_STATUS: PermissionsStatus = {
 // Storage key for permission status
 const PERMISSIONS_STORAGE_KEY = "@AutoSMS:PermissionsStatus";
 
-// Get the native module
-const { PermissionsManager } = NativeModules;
+// Map our permission types to react-native-permissions permission types
+const permissionMapping: Record<
+  string,
+  Record<PermissionType, Permission | string>
+> = {
+  android: {
+    READ_CALL_LOG: PERMISSIONS.ANDROID.READ_CALL_LOG,
+    CALL_PHONE: PERMISSIONS.ANDROID.CALL_PHONE,
+    ANSWER_PHONE_CALLS: PERMISSIONS.ANDROID.ANSWER_PHONE_CALLS,
+    READ_CONTACTS: PERMISSIONS.ANDROID.READ_CONTACTS,
+    SEND_SMS: PERMISSIONS.ANDROID.SEND_SMS,
+    READ_SMS: PERMISSIONS.ANDROID.READ_SMS,
+    POST_NOTIFICATIONS: "android.permission.POST_NOTIFICATIONS", // Add manually if not available
+  },
+  ios: {
+    // iOS doesn't have the same permissions, but we'll define placeholders
+    READ_CALL_LOG: "unsupported",
+    CALL_PHONE: "unsupported",
+    ANSWER_PHONE_CALLS: "unsupported",
+    READ_CONTACTS: PERMISSIONS.IOS.CONTACTS,
+    SEND_SMS: "unsupported",
+    READ_SMS: "unsupported",
+    POST_NOTIFICATIONS: "ios.permission.NOTIFICATIONS", // Add manually if not available
+  },
+  default: {
+    READ_CALL_LOG: "unsupported",
+    CALL_PHONE: "unsupported",
+    ANSWER_PHONE_CALLS: "unsupported",
+    READ_CONTACTS: "unsupported",
+    SEND_SMS: "unsupported",
+    READ_SMS: "unsupported",
+    POST_NOTIFICATIONS: "unsupported",
+  },
+};
+
+// Get the correct permission mapping based on platform
+const currentMapping =
+  Platform.select(permissionMapping) || permissionMapping.default;
 
 /**
  * Class that handles all permission-related operations
@@ -49,10 +93,20 @@ class PermissionsService {
    * @returns Promise resolving to boolean indicating if permission is granted
    */
   async checkPermission(permission: PermissionType): Promise<boolean> {
-    if (Platform.OS !== "android") {
+    if (
+      Platform.OS !== "android" ||
+      currentMapping[permission] === "unsupported"
+    ) {
       return false;
     }
-    return await PermissionsManager.checkPermission(permission);
+
+    try {
+      const result = await check(currentMapping[permission] as Permission);
+      return result === RESULTS.GRANTED;
+    } catch (error) {
+      console.error(`Error checking permission ${permission}:`, error);
+      return false;
+    }
   }
 
   /**
@@ -61,12 +115,25 @@ class PermissionsService {
    * @returns Promise resolving to boolean indicating if permission was granted
    */
   async requestPermission(permission: PermissionType): Promise<boolean> {
-    if (Platform.OS !== "android") {
+    if (
+      Platform.OS !== "android" ||
+      currentMapping[permission] === "unsupported"
+    ) {
       return false;
     }
-    const granted = await PermissionsManager.requestPermission(permission);
-    await this.savePermissionStatus(permission, granted);
-    return granted;
+
+    try {
+      const result = await request(currentMapping[permission] as Permission);
+      const granted = result === RESULTS.GRANTED;
+
+      // Save the status to AsyncStorage
+      await this.savePermissionStatus(permission, granted);
+
+      return granted;
+    } catch (error) {
+      console.error(`Error requesting permission ${permission}:`, error);
+      return false;
+    }
   }
 
   /**
@@ -74,10 +141,13 @@ class PermissionsService {
    * @returns Promise resolving when settings are opened
    */
   async openSettings(): Promise<boolean> {
-    if (Platform.OS !== "android") {
+    try {
+      await openSettings();
+      return true;
+    } catch (error) {
+      console.error("Error opening settings:", error);
       return false;
     }
-    return await PermissionsManager.openSettings();
   }
 
   /**
