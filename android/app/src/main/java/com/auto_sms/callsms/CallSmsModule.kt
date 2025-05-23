@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.provider.CallLog
 import android.provider.Telephony
 import android.telephony.SmsManager
@@ -68,6 +69,22 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         }
 
         try {
+            // Start our foreground service for persistent monitoring
+            val serviceIntent = Intent(reactApplicationContext, CallLogCheckService::class.java)
+            
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    reactApplicationContext.startForegroundService(serviceIntent)
+                } else {
+                    reactApplicationContext.startService(serviceIntent)
+                }
+                Log.d(TAG, "CallLogCheckService started successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting service: ${e.message}", e)
+                // Continue with receiver registration even if service start fails
+            }
+            
+            // Register broadcast receiver for immediate response
             val intentFilter = IntentFilter()
             intentFilter.addAction(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
             intentFilter.addAction("android.provider.Telephony.SMS_DELIVERED")
@@ -87,9 +104,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 }
             }
             
-            currentActivity?.registerReceiver(callReceiver, intentFilter)
+            reactApplicationContext.registerReceiver(callReceiver, intentFilter)
             isMonitoringCalls = true
-            startCheckingMissedCalls()
+            
+            // Save monitoring state to SharedPreferences
+            saveMonitoringStatus(true)
+            
             promise.resolve(true)
             
         } catch (e: Exception) {
@@ -106,15 +126,75 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         }
 
         try {
+            // Unregister receiver
             callReceiver?.let {
-                currentActivity?.unregisterReceiver(it)
+                try {
+                    reactApplicationContext.unregisterReceiver(it)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error unregistering receiver: ${e.message}")
+                }
                 callReceiver = null
             }
+            
+            // Stop the service
+            val serviceIntent = Intent(reactApplicationContext, CallLogCheckService::class.java)
+            reactApplicationContext.stopService(serviceIntent)
+            
             isMonitoringCalls = false
+            
+            // Save monitoring state to SharedPreferences
+            saveMonitoringStatus(false)
+            
             promise.resolve(true)
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping call monitoring: ${e.message}")
             promise.reject("STOP_MONITORING_ERROR", "Failed to stop monitoring calls: ${e.message}")
+        }
+    }
+    
+    /**
+     * Save the monitoring status to SharedPreferences
+     */
+    private fun saveMonitoringStatus(isMonitoring: Boolean) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("isMonitoringActive", isMonitoring).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving monitoring status: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setAutoSmsEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            // Save setting to SharedPreferences for use when app is killed
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("@AutoSMS:Enabled", enabled).apply()
+            
+            if (enabled) {
+                if (hasRequiredPermissions()) {
+                    startMonitoringCalls(promise)
+                } else {
+                    promise.resolve(false)
+                }
+            } else {
+                stopMonitoringCalls(promise)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting auto SMS enabled: ${e.message}")
+            promise.reject("SET_AUTO_SMS_ERROR", "Failed to set auto SMS enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun isAutoSmsEnabled(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val enabled = sharedPrefs.getBoolean("@AutoSMS:Enabled", true)
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting auto SMS enabled: ${e.message}")
+            promise.reject("GET_AUTO_SMS_ERROR", "Failed to get auto SMS enabled: ${e.message}")
         }
     }
 
@@ -431,5 +511,64 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         }
         
         return missingPermissions.joinToString(", ")
+    }
+
+    @ReactMethod
+    fun getSmsHistoryFromNative(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val historyJson = sharedPrefs.getString("@AutoSMS:SmsHistory", "[]") ?: "[]"
+            
+            // If there's history data, parse it to a WritableArray
+            if (historyJson != "[]") {
+                try {
+                    // Convert JSON string to WritableArray
+                    val jsonArray = org.json.JSONArray(historyJson)
+                    val resultArray = Arguments.createArray()
+                    
+                    for (i in 0 until jsonArray.length()) {
+                        val jsonObject = jsonArray.getJSONObject(i)
+                        val item = Arguments.createMap()
+                        
+                        // Copy all fields from JSON to WritableMap
+                        val keys = jsonObject.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val value = jsonObject.get(key)
+                            
+                            when (value) {
+                                is String -> item.putString(key, value)
+                                is Int -> item.putInt(key, value)
+                                is Double -> item.putDouble(key, value)
+                                is Long -> item.putDouble(key, value.toDouble())
+                                is Boolean -> item.putBoolean(key, value)
+                                else -> {
+                                    // Handle case when the value is null or another type
+                                    if (!jsonObject.isNull(key)) {
+                                        item.putString(key, value.toString())
+                                    }
+                                }
+                            }
+                        }
+                        
+                        resultArray.pushMap(item)
+                    }
+                    
+                    // Clear history in SharedPreferences after retrieving it
+                    sharedPrefs.edit().putString("@AutoSMS:SmsHistory", "[]").apply()
+                    
+                    promise.resolve(resultArray)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing SMS history JSON: ${e.message}", e)
+                    promise.reject("PARSE_HISTORY_ERROR", "Failed to parse SMS history: ${e.message}")
+                }
+            } else {
+                // No history, return empty array
+                promise.resolve(Arguments.createArray())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting SMS history: ${e.message}", e)
+            promise.reject("GET_HISTORY_ERROR", "Failed to get SMS history: ${e.message}")
+        }
     }
 } 

@@ -266,10 +266,42 @@ class CallSmsService {
   }
 
   /**
+   * Set auto SMS enabled setting
+   */
+  async setAutoSmsEnabled(enabled: boolean): Promise<void> {
+    try {
+      // Save setting to AsyncStorage (for React Native UI)
+      await AsyncStorage.setItem(AUTO_SMS_ENABLED_KEY, enabled.toString());
+
+      // Apply setting to native module (for use when app is killed)
+      if (Platform.OS === "android") {
+        await CallSmsModule.setAutoSmsEnabled(enabled);
+      }
+
+      this.notifyListeners("settingsChanged", { autoSmsEnabled: enabled });
+    } catch (error) {
+      console.error("Error setting auto SMS enabled:", error);
+    }
+  }
+
+  /**
    * Get auto SMS enabled setting
    */
   async isAutoSmsEnabled(): Promise<boolean> {
     try {
+      if (Platform.OS === "android") {
+        // Get value from native module that syncs with SharedPreferences
+        try {
+          return await CallSmsModule.isAutoSmsEnabled();
+        } catch (e) {
+          console.warn(
+            "Error getting setting from native module, falling back to AsyncStorage",
+            e
+          );
+        }
+      }
+
+      // Fallback to AsyncStorage
       const value = await AsyncStorage.getItem(AUTO_SMS_ENABLED_KEY);
       return value === null ? true : value === "true";
     } catch (error) {
@@ -279,14 +311,41 @@ class CallSmsService {
   }
 
   /**
-   * Set auto SMS enabled setting
+   * Sync SMS history from native storage to AsyncStorage
    */
-  async setAutoSmsEnabled(enabled: boolean): Promise<void> {
+  async syncHistoryFromNative(): Promise<void> {
+    if (Platform.OS !== "android") {
+      return;
+    }
+
     try {
-      await AsyncStorage.setItem(AUTO_SMS_ENABLED_KEY, enabled.toString());
-      this.notifyListeners("settingsChanged", { autoSmsEnabled: enabled });
+      // Request the native module to sync any history saved while app was killed
+      const nativeHistory = await CallSmsModule.getSmsHistoryFromNative();
+      if (nativeHistory && nativeHistory.length > 0) {
+        // Get current history from AsyncStorage
+        const currentHistory = await this.getSmsHistory();
+
+        // Merge histories (avoid duplicates by using Set of IDs)
+        const mergedHistory = [...currentHistory];
+        const existingIds = new Set(currentHistory.map((item) => item.id));
+
+        for (const item of nativeHistory) {
+          if (!existingIds.has(item.id)) {
+            mergedHistory.unshift(item);
+          }
+        }
+
+        // Save merged history
+        await AsyncStorage.setItem(
+          SMS_HISTORY_STORAGE_KEY,
+          JSON.stringify(mergedHistory)
+        );
+
+        // Notify listeners of updated history
+        this.notifyListeners("historyUpdated", null);
+      }
     } catch (error) {
-      console.error("Error setting auto SMS enabled:", error);
+      console.error("Error syncing native SMS history:", error);
     }
   }
 

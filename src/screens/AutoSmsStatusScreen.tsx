@@ -9,6 +9,7 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  AppState,
 } from "react-native";
 import CallSmsService, { SmsHistoryItem } from "../services/CallSmsService";
 import PermissionsService from "../services/PermissionsService";
@@ -33,6 +34,42 @@ const AutoSmsStatusScreen: React.FC = () => {
     setPermissionsGranted(hasPermissions);
     return hasPermissions;
   }, []);
+
+  /**
+   * Sync SMS history from native storage
+   */
+  const syncNativeHistory = useCallback(async () => {
+    try {
+      await CallSmsService.syncHistoryFromNative();
+    } catch (error) {
+      console.error("Error syncing native history:", error);
+    }
+  }, []);
+
+  /**
+   * Handle app state changes to sync native data
+   */
+  const handleAppStateChange = useCallback(
+    (nextAppState: string) => {
+      if (nextAppState === "active") {
+        // App came to foreground, sync history from native storage
+        syncNativeHistory();
+
+        // Also re-check permissions and monitoring status
+        checkPermissions().then((hasPermissions) => {
+          if (hasPermissions) {
+            const isMonitoring = CallSmsService.isMonitoringCalls();
+            if (!isMonitoring) {
+              CallSmsService.startMonitoringCalls().catch((err) => {
+                console.warn("Error starting call monitoring:", err);
+              });
+            }
+          }
+        });
+      }
+    },
+    [checkPermissions, syncNativeHistory]
+  );
 
   /**
    * Load SMS history and settings
@@ -193,6 +230,12 @@ const AutoSmsStatusScreen: React.FC = () => {
       checkPermissions();
     }, 2000);
 
+    // Set up app state change listener for syncing native data
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      handleAppStateChange
+    );
+
     // Setup event listeners
     const onSmsSent = () => loadData(false);
     const onSmsError = () => loadData(false);
@@ -202,21 +245,28 @@ const AutoSmsStatusScreen: React.FC = () => {
         setIsAutoSmsEnabled(enabled);
       });
     };
+    const onHistoryUpdated = () => loadData(false);
 
     CallSmsService.addListener("smsSent", onSmsSent);
     CallSmsService.addListener("smsError", onSmsError);
     CallSmsService.addListener("historyCleared", onHistoryCleared);
     CallSmsService.addListener("settingsChanged", onSettingsChanged);
+    CallSmsService.addListener("historyUpdated", onHistoryUpdated);
+
+    // Sync native history on initial mount
+    syncNativeHistory();
 
     // Cleanup listeners and interval
     return () => {
       clearInterval(permissionCheckInterval);
+      appStateSubscription.remove();
       CallSmsService.removeListener("smsSent", onSmsSent);
       CallSmsService.removeListener("smsError", onSmsError);
       CallSmsService.removeListener("historyCleared", onHistoryCleared);
       CallSmsService.removeListener("settingsChanged", onSettingsChanged);
+      CallSmsService.removeListener("historyUpdated", onHistoryUpdated);
     };
-  }, [loadData, checkPermissions]);
+  }, [loadData, checkPermissions, handleAppStateChange, syncNativeHistory]);
 
   /**
    * Render item
