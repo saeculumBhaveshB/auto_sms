@@ -1,97 +1,82 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Auto SMS Sender for Missed Calls
 
-# Getting Started
+An Android application built with React Native that automatically sends SMS messages to callers whose calls have been missed.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Features
 
-## Step 1: Start Metro
+- **Automatic SMS Sending**: Automatically sends a predefined SMS message to callers whose calls have been missed.
+- **Call Detection**: Monitors incoming calls and identifies missed calls.
+- **SMS Status Tracking**: Keeps track of sent messages and their status (sent or failed).
+- **History Display**: Shows a history of automatically sent SMS messages with timestamps and status.
+- **Toggle Functionality**: Allows enabling/disabling the auto-send SMS feature.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Technical Implementation
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+### Native Android Components
 
-```sh
-# Using npm
-npm start
+- **CallSmsModule**: Native Kotlin module that handles phone call detection and SMS sending.
+- **CallReceiver**: BroadcastReceiver for handling call state changes and SMS events.
+- **CallSmsPackage**: Package class to register the native module with React Native.
 
-# OR using Yarn
-yarn start
-```
+### React Native Components
 
-## Step 2: Build and run your app
+- **CallSmsService**: JavaScript service that interfaces with the native module.
+- **AutoSmsStatusScreen**: UI component to display SMS history and toggle the auto-SMS feature.
+- **PermissionsStatusScreen**: UI component to manage and request necessary permissions.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Required Permissions
 
-### Android
+The app requires the following Android permissions:
 
-```sh
-# Using npm
-npm run android
+- `READ_CALL_LOG`: To access call history and detect missed calls.
+- `READ_PHONE_STATE`: To detect incoming calls.
+- `SEND_SMS`: To send automatic SMS messages.
+- `READ_SMS`: To verify message status.
+- `RECEIVE_SMS`: For receiving SMS status updates.
+- `READ_CONTACTS`: For displaying contact names (optional).
 
-# OR using Yarn
-yarn android
-```
+## Setup and Running
 
-### iOS
+### Prerequisites
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+- Node.js (>= 18.x)
+- JDK 17
+- Android SDK
+- React Native CLI
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+### Installation
 
-```sh
-bundle install
-```
+1. Clone the repository
+2. Install dependencies:
+   ```
+   npm install
+   ```
+3. Start the app:
+   ```
+   npx react-native run-android
+   ```
 
-Then, and every time you update your native dependencies, run:
+## Usage
 
-```sh
-bundle exec pod install
-```
+1. Launch the app
+2. Grant the required permissions on the Permissions screen
+3. Navigate to the "Auto SMS Status" tab
+4. Toggle the auto-send SMS feature on/off
+5. Miss a call to trigger the automatic SMS sending
+6. View the status and history of sent messages on the same screen
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Default SMS Message
 
-```sh
-# Using npm
-npm run ios
+The default SMS message is:
 
-# OR using Yarn
-yarn ios
-```
+> "I am busy, please give me some time, I will contact you."
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+## Troubleshooting
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+- If calls are not being detected, ensure all permissions are granted.
+- For some devices, you may need to disable battery optimization for the app.
+- Make sure the app is set as the default SMS app or has been granted permission to send SMS.
 
-## Step 3: Modify your app
+## Contributing
 
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Contributions are welcome! Please feel free to submit a Pull Request.
