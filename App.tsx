@@ -2,7 +2,7 @@
  * Auto SMS App
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   SafeAreaView,
   StatusBar,
@@ -16,6 +16,13 @@ import {
 import PermissionsStatusScreen from "./src/screens/PermissionsStatusScreen";
 import AutoSmsStatusScreen from "./src/screens/AutoSmsStatusScreen";
 
+// Create a context to share tab navigation functions
+export const NavigationContext = React.createContext<{
+  navigateToTab: (tab: Screen) => void;
+}>({
+  navigateToTab: () => {},
+});
+
 type Screen = "permissions" | "smsStatus";
 
 function App(): React.JSX.Element {
@@ -25,6 +32,14 @@ function App(): React.JSX.Element {
   const backgroundStyle = {
     backgroundColor: isDarkMode ? "#000000" : "#F5F5F5",
     flex: 1,
+  };
+
+  const navigateToTab = useCallback((tab: Screen) => {
+    setCurrentScreen(tab);
+  }, []);
+
+  const navigationContextValue = {
+    navigateToTab,
   };
 
   return (
@@ -72,11 +87,13 @@ function App(): React.JSX.Element {
       </View>
 
       {/* Screen Content */}
-      {currentScreen === "permissions" ? (
-        <PermissionsStatusScreen />
-      ) : (
-        <AutoSmsStatusScreen />
-      )}
+      <NavigationContext.Provider value={navigationContextValue}>
+        {currentScreen === "permissions" ? (
+          <PermissionsStatusScreen />
+        ) : (
+          <AutoSmsStatusScreen />
+        )}
+      </NavigationContext.Provider>
     </SafeAreaView>
   );
 }

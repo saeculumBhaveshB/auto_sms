@@ -127,8 +127,16 @@ class CallSmsService {
       const result = await CallSmsModule.startMonitoringCalls();
       this.isMonitoring = result;
       return result;
-    } catch (error) {
-      console.error("Error starting call monitoring:", error);
+    } catch (error: any) {
+      // Check if this is a permissions error
+      if (error.message && error.message.includes("permission")) {
+        console.warn(
+          "Missing permissions for call monitoring. Please grant all required permissions (Call Log, Phone State, SMS) in the Permissions screen."
+        );
+      } else {
+        console.error("Error starting call monitoring:", error);
+      }
+      this.isMonitoring = false;
       return false;
     }
   }

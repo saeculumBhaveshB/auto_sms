@@ -53,7 +53,11 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun startMonitoringCalls(promise: Promise) {
         if (!hasRequiredPermissions()) {
-            promise.reject("PERMISSIONS_DENIED", "The app doesn't have the required permissions")
+            val missingPermissions = getMissingPermissions()
+            promise.reject(
+                "PERMISSIONS_DENIED", 
+                "The app doesn't have the required permissions: $missingPermissions. Please grant these permissions first."
+            )
             return
         }
 
@@ -399,5 +403,22 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         reactApplicationContext
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
             .emit(eventName, params)
+    }
+
+    private fun getMissingPermissions(): String {
+        val context = reactApplicationContext
+        val missingPermissions = mutableListOf<String>()
+        
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            missingPermissions.add("READ_CALL_LOG")
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            missingPermissions.add("READ_PHONE_STATE")
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            missingPermissions.add("SEND_SMS")
+        }
+        
+        return missingPermissions.joinToString(", ")
     }
 } 

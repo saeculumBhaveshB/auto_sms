@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useContext } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import CallSmsService, { SmsHistoryItem } from "../services/CallSmsService";
+import { NavigationContext } from "../../App";
 
 const AutoSmsStatusScreen: React.FC = () => {
   const [smsHistory, setSmsHistory] = useState<SmsHistoryItem[]>([]);
@@ -18,6 +19,9 @@ const AutoSmsStatusScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [isAutoSmsEnabled, setIsAutoSmsEnabled] = useState<boolean>(true);
   const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
+
+  // Get navigation context
+  const { navigateToTab } = useContext(NavigationContext);
 
   /**
    * Load SMS history and settings
@@ -42,8 +46,17 @@ const AutoSmsStatusScreen: React.FC = () => {
 
       // Start monitoring if enabled and not already monitoring
       if (autoSmsEnabled && !monitoring) {
-        const started = await CallSmsService.startMonitoringCalls();
-        setIsMonitoring(started);
+        try {
+          const started = await CallSmsService.startMonitoringCalls();
+          setIsMonitoring(started);
+          if (!started) {
+            console.warn("Failed to start call monitoring");
+          }
+        } catch (err: any) {
+          console.warn("Error starting call monitoring:", err.message);
+          // Don't show alert here - just quietly fail as permissions may not be ready
+          setIsMonitoring(false);
+        }
       }
     } catch (error) {
       console.error("Error loading data:", error);
@@ -248,6 +261,21 @@ const AutoSmsStatusScreen: React.FC = () => {
         </Text>
       </View>
 
+      {!isMonitoring && isAutoSmsEnabled && (
+        <View style={styles.warningContainer}>
+          <Text style={styles.warningText}>
+            ⚠️ Please grant all required permissions in the Permissions tab
+            before using Auto SMS.
+          </Text>
+          <TouchableOpacity
+            style={styles.permissionsButton}
+            onPress={() => navigateToTab("permissions")}
+          >
+            <Text style={styles.permissionsButtonText}>Go to Permissions</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.listHeader}>
         <Text style={styles.listHeaderText}>SMS History</Text>
         {smsHistory.length > 0 && (
@@ -411,6 +439,33 @@ const styles = StyleSheet.create({
     color: "#777",
     textAlign: "center",
     paddingHorizontal: 32,
+  },
+  warningContainer: {
+    backgroundColor: "#fff3cd",
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 4,
+    borderLeftWidth: 4,
+    borderLeftColor: "#ffeeba",
+  },
+  warningText: {
+    fontSize: 14,
+    color: "#856404",
+    lineHeight: 20,
+  },
+  permissionsButton: {
+    backgroundColor: "#ffc107",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  permissionsButtonText: {
+    color: "#212529",
+    fontWeight: "bold",
+    fontSize: 14,
   },
 });
 
