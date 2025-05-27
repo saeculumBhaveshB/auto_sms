@@ -124,6 +124,12 @@ android {
     }
 }
 
+repositories {
+    google()
+    mavenCentral()
+    maven { url "https://www.jitpack.io" }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
@@ -151,4 +157,14 @@ dependencies {
     
     // Document picker dependencies
     implementation("androidx.documentfile:documentfile:1.0.1")
+    
+    // Update LLama.cpp dependencies with more accessible alternatives
+    // Instead of these problematic dependencies:
+    // implementation 'com.github.kheynov:llamacpp-android:1.0.3'
+    // implementation 'ai.onnxruntime:onnxruntime-android:1.13.1'
+    
+    // Use these more accessible alternatives
+    implementation 'org.tensorflow:tensorflow-lite:2.12.0'
+    // For text processing (used in our simulated LLM functionality)
+    implementation 'org.apache.commons:commons-text:1.10.0'
 }

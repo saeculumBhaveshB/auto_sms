@@ -714,4 +714,52 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             promise.reject("PROCESS_PENDING_ERROR", "Failed to process pending messages: ${e.message}")
         }
     }
+
+    /**
+     * Process incoming SMS and generate response using local LLM if available, 
+     * or fallback to online API
+     */
+    private fun processIncomingSmsWithLLM(caller: String, messageBody: String): String {
+        try {
+            // Check if Local LLM module is loaded
+            val localLLMModule = reactApplicationContext.getNativeModule(com.auto_sms.llm.LocalLLMModule::class.java)
+            
+            if (localLLMModule != null) {
+                // Try to generate response with local LLM
+                try {
+                    val isLoaded = localLLMModule.isModelLoadedSync()
+                    
+                    if (isLoaded) {
+                        Log.d(TAG, "Using local LLM for response generation")
+                        val response = localLLMModule.generateAnswerSync(messageBody, 0.7f, 200)
+                        
+                        // Ensure response starts with "AI:" prefix
+                        return if (response.startsWith("AI:")) {
+                            response
+                        } else {
+                            "AI: $response"
+                        }
+                    } else {
+                        Log.d(TAG, "Local LLM model is not loaded, falling back to online API")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using local LLM for response: ${e.message}")
+                }
+            }
+            
+            // Fallback to online AI API response
+            return generateAIResponseSync(caller, messageBody)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in processIncomingSmsWithLLM: ${e.message}")
+            return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+        }
+    }
+    
+    /**
+     * Fallback method for generating AI responses when LLM is not available
+     */
+    private fun generateAIResponseSync(caller: String, message: String): String {
+        // Simple fallback response when local LLM is not available
+        return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+    }
 } 

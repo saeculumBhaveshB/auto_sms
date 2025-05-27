@@ -14,6 +14,7 @@ import com.facebook.soloader.SoLoader
 import com.auto_sms.permissions.PermissionsPackage
 import com.auto_sms.callsms.CallSmsPackage
 import com.auto_sms.docparser.DocParserPackage
+import com.auto_sms.llm.LocalLLMPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -26,6 +27,7 @@ class MainApplication : Application(), ReactApplication {
               add(PermissionsPackage())
               add(CallSmsPackage())
               add(DocParserPackage())
+              add(LocalLLMPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

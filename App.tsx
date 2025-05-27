@@ -18,12 +18,18 @@ import {
   AutoSmsStatusScreen,
   AIDocumentScreen,
   AIChatLogScreen,
+  LocalLLMSetupScreen,
 } from "./src/screens";
 
 import { CallSmsService } from "./src/services";
 
 // Define screen types
-type Screen = "permissions" | "smsStatus" | "aiDocument" | "aiChatLog";
+type Screen =
+  | "permissions"
+  | "smsStatus"
+  | "aiDocument"
+  | "aiChatLog"
+  | "localLLM";
 
 // Create a navigation context for tab switching
 export type NavigationContextType = {
@@ -135,6 +141,23 @@ function App(): React.JSX.Element {
           <TouchableOpacity
             style={[
               styles.tab,
+              currentScreen === "localLLM" && styles.activeTab,
+            ]}
+            onPress={() => navigateToTab("localLLM")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                currentScreen === "localLLM" && styles.activeTabText,
+              ]}
+            >
+              Local LLM
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tab,
               currentScreen === "aiChatLog" && styles.activeTab,
             ]}
             onPress={() => navigateToTab("aiChatLog")}
@@ -157,6 +180,8 @@ function App(): React.JSX.Element {
           <AutoSmsStatusScreen />
         ) : currentScreen === "aiDocument" ? (
           <AIDocumentScreen />
+        ) : currentScreen === "localLLM" ? (
+          <LocalLLMSetupScreen />
         ) : (
           <AIChatLogScreen />
         )}
