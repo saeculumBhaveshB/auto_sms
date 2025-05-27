@@ -26,10 +26,11 @@ class AIService {
    */
   async initializeOpenAI(): Promise<boolean> {
     try {
+      // Get API key from storage
       const apiKey = await AsyncStorage.getItem(AI_API_KEY_STORAGE);
 
       if (!apiKey) {
-        console.warn("OpenAI API key not found");
+        console.log("No API key found in storage");
         return false;
       }
 
@@ -69,6 +70,7 @@ class AIService {
         type: [
           "application/msword",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/pdf",
         ],
       });
 
@@ -91,10 +93,39 @@ class AIService {
    */
   async processDocumentFile(uri: string): Promise<string> {
     try {
+      console.log("Processing document:", uri);
+
+      // Determine if this is a PDF file
+      const isPdf = uri.toLowerCase().endsWith(".pdf") || uri.includes("pdf");
+
       // Use DocParserService to extract text from document
-      return await DocParserService.parseDocument(uri);
-    } catch (error) {
+      let text = await DocParserService.parseDocument(uri);
+
+      // For PDF files, add a note at the top about possible extraction errors
+      if (isPdf && text) {
+        text =
+          "Note: Text has been automatically extracted from a PDF document. " +
+          "Please review and correct any errors before training the AI.\n\n" +
+          text;
+      }
+
+      return text;
+    } catch (error: any) {
       console.error("Error processing document file:", error);
+
+      // Special handling for PDF errors
+      if (error.message) {
+        if (error.message.includes("org.apache.pdfbox.pdmodel.PDDocument")) {
+          throw new Error(
+            "Failed to process PDF document. The file might be corrupted or password-protected."
+          );
+        } else if (error.message.includes("java/awt/Point")) {
+          throw new Error(
+            "Failed to process PDF. This PDF format is not supported."
+          );
+        }
+      }
+
       throw error;
     }
   }
