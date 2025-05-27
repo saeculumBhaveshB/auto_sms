@@ -7,49 +7,6 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
-
-    /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
-
-    /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
-    //
-    //   The command to run when bundling. By default is 'bundle'
-    // bundleCommand = "ram-bundle"
-    //
-    //   The path to the CLI configuration file. Default is empty.
-    // bundleConfig = file(../rn-cli.config.js)
-    //
-    //   The name of the generated asset file containing your JS bundle
-    // bundleAssetName = "MyApplication.android.bundle"
-    //
-    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    // entryFile = file("../js/MyApplication.android.js")
-    //
-    //   A list of extra flags to pass to the 'bundle' commands.
-    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    //
-    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
-
     /* Autolinking */
     autolinkLibrariesWithApp()
 }
@@ -61,14 +18,6 @@ def enableProguardInReleaseBuilds = false
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
- *
- * For example, to use the international variant, you can use:
- * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
- *
- * The international variant includes ICU i18n library and necessary data
- * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
- * give correct results when using with locales other than en-US. Note that
- * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
@@ -98,8 +47,6 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
@@ -112,7 +59,6 @@ android {
         pickFirst 'lib/x86/libc++_shared.so'
         pickFirst 'lib/x86_64/libc++_shared.so'
         
-        // Exclude duplicate META-INF files
         exclude 'META-INF/DEPENDENCIES'
         exclude 'META-INF/LICENSE'
         exclude 'META-INF/LICENSE.txt'
@@ -127,7 +73,8 @@ android {
 repositories {
     google()
     mavenCentral()
-    maven { url "https://www.jitpack.io" }
+    jcenter()
+    maven { url "https://jitpack.io" }
 }
 
 dependencies {
@@ -140,31 +87,21 @@ dependencies {
         implementation jscFlavor
     }
     
-    // Add androidx.core support for NotificationCompat
+    // Core Android dependencies
     implementation("androidx.core:core:1.12.0")
     implementation("androidx.core:core-ktx:1.12.0")
-    
-    // Apache POI for document parsing
-    implementation("org.apache.poi:poi:5.2.3")
-    implementation("org.apache.poi:poi-ooxml:5.2.3")
-    implementation("org.apache.poi:poi-scratchpad:5.2.3")
-    // Additional required dependencies for Apache POI
-    implementation("org.apache.commons:commons-compress:1.25.0")
-    implementation("org.apache.commons:commons-collections4:4.4")
-    implementation("commons-io:commons-io:2.15.1")
-    implementation("org.apache.logging.log4j:log4j-api:2.22.0")
-    implementation("org.apache.logging.log4j:log4j-core:2.22.0")
-    
-    // Document picker dependencies
     implementation("androidx.documentfile:documentfile:1.0.1")
     
-    // Update LLama.cpp dependencies with more accessible alternatives
-    // Instead of these problematic dependencies:
-    // implementation 'com.github.kheynov:llamacpp-android:1.0.3'
-    // implementation 'ai.onnxruntime:onnxruntime-android:1.13.1'
+    // TensorFlow Lite for LLM functionality
+    implementation 'org.tensorflow:tensorflow-lite:2.8.0'
     
-    // Use these more accessible alternatives
-    implementation 'org.tensorflow:tensorflow-lite:2.12.0'
-    // For text processing (used in our simulated LLM functionality)
+    // PDF and DOCX parsing
+    implementation 'com.itextpdf:itextg:5.5.10'
+    implementation 'org.apache.poi:poi:4.1.2'
+    implementation 'org.apache.poi:poi-ooxml:4.1.2'
+    
+    // Utilities
+    implementation 'commons-io:commons-io:2.11.0'
+    implementation 'org.apache.commons:commons-collections4:4.4'
     implementation 'org.apache.commons:commons-text:1.10.0'
 }

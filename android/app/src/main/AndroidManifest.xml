@@ -13,12 +13,18 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.WRITE_SMS" />
+    <!-- Required for becoming default SMS app -->
+    <uses-permission android:name="android.permission.BROADCAST_SMS" />
     <!-- Notification permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Foreground service permission -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Boot permission -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- File access permissions -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
 
     <application
       android:name=".MainApplication"
@@ -51,11 +57,45 @@
       </receiver>
       
       <!-- SMS receiver for AI responses -->
-      <receiver android:name="com.auto_sms.callsms.SmsReceiver" android:exported="true">
+      <receiver android:name="com.auto_sms.callsms.SmsReceiver" 
+                android:exported="true"
+                android:permission="android.permission.BROADCAST_SMS">
         <intent-filter android:priority="999">
             <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            <action android:name="android.provider.Telephony.SMS_DELIVER" />
         </intent-filter>
       </receiver>
+      
+      <!-- Default SMS app declarations -->
+      <receiver android:name="com.auto_sms.callsms.MmsReceiver"
+                android:enabled="true"
+                android:exported="true"
+                android:permission="android.permission.BROADCAST_WAP_PUSH">
+        <intent-filter>
+          <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+          <data android:mimeType="application/vnd.wap.mms-message" />
+        </intent-filter>
+      </receiver>
+      
+      <receiver android:name="com.auto_sms.callsms.SmsDeliveredReceiver"
+                android:exported="true">
+        <intent-filter>
+          <action android:name="android.provider.Telephony.SMS_DELIVER" />
+        </intent-filter>
+      </receiver>
+      
+      <service android:name="com.auto_sms.callsms.HeadlessSmsSendService"
+               android:exported="true"
+               android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+        <intent-filter>
+          <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:scheme="sms" />
+          <data android:scheme="smsto" />
+          <data android:scheme="mms" />
+          <data android:scheme="mmsto" />
+        </intent-filter>
+      </service>
       
       <!-- Boot receiver to start service on device boot -->
       <receiver android:name="com.auto_sms.callsms.BootReceiver" android:exported="true">
@@ -68,6 +108,13 @@
       <service
         android:name="com.auto_sms.callsms.CallLogCheckService"
         android:enabled="true"
+        android:exported="false" />
+        
+      <!-- Foreground service for SMS auto-reply -->
+      <service
+        android:name="com.auto_sms.callsms.CallSmsService"
+        android:enabled="true"
+        android:foregroundServiceType="dataSync"
         android:exported="false" />
     </application>
 </manifest>

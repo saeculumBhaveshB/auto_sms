@@ -24,6 +24,8 @@ import java.text.SimpleDateFormat
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
+import org.json.JSONObject
 
 class CallSmsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -650,6 +652,33 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                 
                                 Log.d(TAG, "Received SMS from $phoneNumber: $messageBody")
                                 
+                                // Generate response using local LLM
+                                val response = processIncomingSmsWithLLM(phoneNumber ?: "", messageBody)
+                                
+                                // Send auto-reply if we have a valid phone number
+                                if (!phoneNumber.isNullOrEmpty()) {
+                                    try {
+                                        val smsManager = SmsManager.getDefault()
+                                        
+                                        // Split message if it's too long
+                                        val parts = smsManager.divideMessage(response)
+                                        
+                                        // Send SMS
+                                        if (parts.size > 1) {
+                                            smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                                        } else {
+                                            smsManager.sendTextMessage(phoneNumber, null, response, null, null)
+                                        }
+                                        
+                                        Log.d(TAG, "Auto-replied to $phoneNumber with: $response")
+                                        
+                                        // Add to SMS history
+                                        saveMessageToHistory(phoneNumber, messageBody, response)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error sending auto-reply SMS: ${e.message}")
+                                    }
+                                }
+                                
                                 // Emit event to React Native
                                 val eventData = Arguments.createMap().apply {
                                     putString("phoneNumber", phoneNumber)
@@ -668,6 +697,45 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             Log.d(TAG, "SMS receiver registered successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error registering SMS receiver: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Save message exchange to history for tracking
+     */
+    private fun saveMessageToHistory(phoneNumber: String, received: String, sent: String) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val historyJson = sharedPrefs.getString("@AutoSMS:SmsHistory", "[]") ?: "[]"
+            
+            // Parse existing history
+            val jsonArray = JSONArray(historyJson)
+            
+            // Add new exchange
+            val exchange = JSONObject().apply {
+                put("phoneNumber", phoneNumber)
+                put("received", received)
+                put("sent", sent)
+                put("timestamp", System.currentTimeMillis())
+            }
+            
+            // Add to history
+            jsonArray.put(exchange)
+            
+            // Save updated history (keep last 100 exchanges maximum)
+            val updatedJson = if (jsonArray.length() > 100) {
+                val trimmedArray = JSONArray()
+                for (i in (jsonArray.length() - 100) until jsonArray.length()) {
+                    trimmedArray.put(jsonArray.get(i))
+                }
+                trimmedArray.toString()
+            } else {
+                jsonArray.toString()
+            }
+            
+            sharedPrefs.edit().putString("@AutoSMS:SmsHistory", updatedJson).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving message to history: ${e.message}")
         }
     }
 
@@ -690,6 +758,31 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     if (parts.size == 3) {
                         val phoneNumber = parts[0]
                         val message = parts[1]
+                        
+                        // Generate response using local LLM
+                        val response = processIncomingSmsWithLLM(phoneNumber, message)
+                        
+                        // Send auto-reply
+                        try {
+                            val smsManager = SmsManager.getDefault()
+                            
+                            // Split message if it's too long
+                            val parts = smsManager.divideMessage(response)
+                            
+                            // Send SMS
+                            if (parts.size > 1) {
+                                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                            } else {
+                                smsManager.sendTextMessage(phoneNumber, null, response, null, null)
+                            }
+                            
+                            Log.d(TAG, "Auto-replied to $phoneNumber with: $response")
+                            
+                            // Add to SMS history
+                            saveMessageToHistory(phoneNumber, message, response)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error sending auto-reply SMS: ${e.message}")
+                        }
                         
                         // Emit event to React Native
                         val eventData = Arguments.createMap().apply {
@@ -716,50 +809,163 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Process incoming SMS and generate response using local LLM if available, 
-     * or fallback to online API
+     * Test method to simulate receiving an SMS for testing auto-reply
      */
-    private fun processIncomingSmsWithLLM(caller: String, messageBody: String): String {
+    @ReactMethod
+    fun testAutoReplySms(phoneNumber: String, message: String, promise: Promise) {
         try {
-            // Check if Local LLM module is loaded
-            val localLLMModule = reactApplicationContext.getNativeModule(com.auto_sms.llm.LocalLLMModule::class.java)
+            Log.d(TAG, "Testing auto-reply with simulated SMS: $phoneNumber -> $message")
             
-            if (localLLMModule != null) {
-                // Try to generate response with local LLM
-                try {
-                    val isLoaded = localLLMModule.isModelLoadedSync()
-                    
-                    if (isLoaded) {
-                        Log.d(TAG, "Using local LLM for response generation")
-                        val response = localLLMModule.generateAnswerSync(messageBody, 0.7f, 200)
-                        
-                        // Ensure response starts with "AI:" prefix
-                        return if (response.startsWith("AI:")) {
-                            response
-                        } else {
-                            "AI: $response"
-                        }
-                    } else {
-                        Log.d(TAG, "Local LLM model is not loaded, falling back to online API")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error using local LLM for response: ${e.message}")
-                }
+            // Generate response using local LLM
+            val response = processIncomingSmsWithLLM(phoneNumber, message)
+            Log.d(TAG, "Generated test response: $response")
+            
+            // Create event data
+            val eventData = Arguments.createMap().apply {
+                putString("phoneNumber", phoneNumber)
+                putString("message", message)
+                putString("response", response)
+                putDouble("timestamp", System.currentTimeMillis().toDouble())
             }
             
-            // Fallback to online AI API response
-            return generateAIResponseSync(caller, messageBody)
+            // Add to history
+            saveMessageToHistory(phoneNumber, message, response)
+            
+            // Don't actually send the SMS, just simulate it
+            val result = Arguments.createMap().apply {
+                putBoolean("success", true)
+                putString("message", "Auto-reply test successful")
+                putString("response", response)
+            }
+            
+            // Emit event
+            sendEvent("onSmsProcessed", eventData)
+            
+            promise.resolve(result)
         } catch (e: Exception) {
-            Log.e(TAG, "Error in processIncomingSmsWithLLM: ${e.message}")
-            return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+            Log.e(TAG, "Error in test auto-reply: ${e.message}")
+            promise.reject("TEST_ERROR", "Failed to test auto-reply: ${e.message}")
+        }
+    }
+
+    /**
+     * Process incoming SMS with local LLM to generate a response
+     */
+    private fun processIncomingSmsWithLLM(phoneNumber: String, message: String): String {
+        try {
+            Log.d(TAG, "Processing incoming SMS with LLM: $phoneNumber -> $message")
+            
+            // Get the current React context to access the LocalLLMModule
+            val reactContext = reactApplicationContext ?: return getDefaultResponse()
+            
+            // Access the LocalLLMModule from ReactApplicationContext
+            val localLLMModule = reactContext.getNativeModules().find { it.name == "LocalLLMModule" }
+            
+            if (localLLMModule == null) {
+                Log.e(TAG, "LocalLLM module not found")
+                return getDefaultResponse()
+            }
+            
+            // Use reflection to call the generateAnswerSync method
+            val generateAnswerMethod = localLLMModule.javaClass.getMethod(
+                "generateAnswerSync",
+                String::class.java,
+                Float::class.java,
+                Int::class.java
+            )
+            
+            // Call the method with appropriate parameters
+            val response = generateAnswerMethod.invoke(
+                localLLMModule,
+                message,
+                0.7f,
+                200
+            ) as? String ?: return getDefaultResponse()
+            
+            Log.d(TAG, "LLM generated response: $response")
+            
+            // Ensure response has "AI:" prefix
+            return if (response.startsWith("AI:")) {
+                response
+            } else {
+                "AI: $response"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing SMS with LLM: ${e.message}", e)
+            return getDefaultResponse()
         }
     }
     
     /**
-     * Fallback method for generating AI responses when LLM is not available
+     * Get default response when LLM processing fails
      */
-    private fun generateAIResponseSync(caller: String, message: String): String {
-        // Simple fallback response when local LLM is not available
+    private fun getDefaultResponse(): String {
         return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+    }
+    
+    /**
+     * Save message exchange to history
+     */
+    private fun saveMessageToHistory(phoneNumber: String, received: String, sent: String) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val historyJson = sharedPrefs.getString("@AutoSMS:SmsHistory", "[]") ?: "[]"
+            
+            // Parse existing history
+            val jsonArray = JSONArray(historyJson)
+            
+            // Create new entry
+            val exchange = JSONObject().apply {
+                put("phoneNumber", phoneNumber)
+                put("received", received)
+                put("sent", sent)
+                put("timestamp", System.currentTimeMillis())
+            }
+            
+            // Add to history
+            jsonArray.put(exchange)
+            
+            // Keep history to last 100 entries max
+            val updatedJson = if (jsonArray.length() > 100) {
+                val trimmedArray = JSONArray()
+                for (i in (jsonArray.length() - 100) until jsonArray.length()) {
+                    trimmedArray.put(jsonArray.get(i))
+                }
+                trimmedArray.toString()
+            } else {
+                jsonArray.toString()
+            }
+            
+            // Save to shared preferences
+            sharedPrefs.edit().putString("@AutoSMS:SmsHistory", updatedJson).apply()
+            Log.d(TAG, "Saved message to history")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving message to history: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Send SMS to recipient
+     */
+    private fun sendSms(phoneNumber: String, message: String): Boolean {
+        return try {
+            val smsManager = SmsManager.getDefault()
+            
+            // Split message if it's too long
+            val parts = smsManager.divideMessage(message)
+            
+            // Send SMS
+            if (parts.size > 1) {
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+            } else {
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            }
+            
+            Log.d(TAG, "SMS sent successfully")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending SMS: ${e.message}", e)
+            false
+        }
     }
 } 

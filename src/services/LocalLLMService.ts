@@ -385,6 +385,92 @@ class LocalLLMService {
       return null;
     }
   }
+
+  /**
+   * Test the auto-reply SMS functionality
+   */
+  async testAutoReply(
+    phoneNumber: string,
+    message: string
+  ): Promise<{
+    success: boolean;
+    response?: string;
+    error?: string;
+  }> {
+    try {
+      if (!isNativeModuleAvailable()) {
+        console.warn(
+          "LocalLLMModule native module is not available. Did you rebuild the app?"
+        );
+        return {
+          success: false,
+          error: "Native module not available. Please restart the app.",
+        };
+      }
+
+      // Get CallSmsModule through NativeModules
+      const { CallSmsModule } = NativeModules;
+
+      if (!CallSmsModule || !CallSmsModule.testAutoReplySms) {
+        return {
+          success: false,
+          error: "CallSmsModule.testAutoReplySms method not available",
+        };
+      }
+
+      // Call the test method
+      const result = await CallSmsModule.testAutoReplySms(phoneNumber, message);
+      return {
+        success: true,
+        response: result.response,
+      };
+    } catch (error) {
+      console.error("Error testing auto-reply SMS:", error);
+      return {
+        success: false,
+        error: String(error),
+      };
+    }
+  }
+
+  /**
+   * Test LLM functionality with loaded documents
+   */
+  async testLlmWithDocuments(question: string): Promise<{
+    success: boolean;
+    response?: string;
+    documentCount?: number;
+    modelLoaded?: boolean;
+    error?: string;
+  }> {
+    try {
+      if (!isNativeModuleAvailable()) {
+        console.warn(
+          "LocalLLMModule native module is not available. Did you rebuild the app?"
+        );
+        return {
+          success: false,
+          error: "Native module not available. Please restart the app.",
+        };
+      }
+
+      // Test LLM with documents
+      const result = await LocalLLMModule.testLlmWithDocuments(question);
+
+      return {
+        success: true,
+        response: result.response,
+        documentCount: result.documentCount,
+        modelLoaded: result.modelLoaded,
+      };
+    } catch (error) {
+      console.error("Error testing LLM with documents:", error);
+      return {
+        success: false,
+        error: String(error),
+      };
+    }
+  }
 }
 
 export default new LocalLLMService();

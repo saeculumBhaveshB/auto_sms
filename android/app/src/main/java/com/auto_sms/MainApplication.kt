@@ -15,6 +15,9 @@ import com.auto_sms.permissions.PermissionsPackage
 import com.auto_sms.callsms.CallSmsPackage
 import com.auto_sms.docparser.DocParserPackage
 import com.auto_sms.llm.LocalLLMPackage
+import android.content.Intent
+import android.os.Build
+import android.util.Log
 
 class MainApplication : Application(), ReactApplication {
 
@@ -44,9 +47,27 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     SoLoader.init(this, OpenSourceMergedSoMapping)
+    
+    // Start foreground service for reliable SMS processing
+    try {
+      val serviceIntent = Intent(this, Class.forName("com.auto_sms.callsms.CallSmsService"))
+      serviceIntent.action = "com.auto_sms.callsms.START_SERVICE"
+      
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        startForegroundService(serviceIntent) 
+      } else {
+        startService(serviceIntent)
+      }
+      
+      Log.d("MainApplication", "Started CallSmsService")
+    } catch (e: Exception) {
+      Log.e("MainApplication", "Error starting service: ${e.message}")
+    }
+    
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
     }
+    ReactNativeFlipper.initializeFlipper(this, reactNativeHost.reactInstanceManager)
   }
 }
