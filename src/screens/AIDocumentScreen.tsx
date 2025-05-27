@@ -56,6 +56,14 @@ const AIDocumentScreen: React.FC = () => {
         return;
       }
 
+      // Show a message when processing PDF files
+      if (document.type && document.type.includes("pdf")) {
+        Alert.alert(
+          "Processing PDF",
+          "PDF extraction is in progress. The results may need review and editing once complete."
+        );
+      }
+
       // Process document
       const text = await DocParserService.parseDocument(document.uri);
       setDocumentText(text);
@@ -64,9 +72,32 @@ const AIDocumentScreen: React.FC = () => {
       await AIService.saveDocumentText(text);
 
       setIsLoading(false);
-    } catch (error) {
+
+      // Show success message with reminder to review if it's a PDF
+      if (document.type && document.type.includes("pdf")) {
+        Alert.alert(
+          "PDF Processed",
+          "Please review and correct any mistakes in the extracted text before training the AI."
+        );
+      }
+    } catch (error: any) {
       console.error("Error picking document:", error);
-      Alert.alert("Error", "Failed to process document. Please try again.");
+
+      // Show more specific error messages for different error types
+      if (error.message && error.message.includes("PDDocument")) {
+        Alert.alert(
+          "PDF Error",
+          "There was an issue processing this PDF file. The file might be corrupted, password-protected, or uses an unsupported format."
+        );
+      } else if (error.message && error.message.includes("java/awt/Point")) {
+        Alert.alert(
+          "PDF Format Error",
+          "This PDF format is not compatible. Please try another PDF file or manually enter the text."
+        );
+      } else {
+        Alert.alert("Error", "Failed to process document. Please try again.");
+      }
+
       setIsLoading(false);
     }
   };
@@ -135,7 +166,7 @@ const AIDocumentScreen: React.FC = () => {
             onPress={handlePickDocument}
             disabled={isLoading}
           >
-            <Text style={styles.buttonText}>Upload DOC file</Text>
+            <Text style={styles.buttonText}>Upload Document (DOC/PDF)</Text>
           </TouchableOpacity>
 
           {isLoading && (
@@ -149,16 +180,34 @@ const AIDocumentScreen: React.FC = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>2. Edit Document Text</Text>
           <Text style={styles.description}>
-            Review and edit the text that will be used to train the AI:
+            Review and edit the text below. For PDF files, you may need to
+            correct formatting and extraction errors:
           </Text>
           <TextInput
-            style={styles.textInput}
+            style={[
+              styles.textInput,
+              documentText.length > 1000 ? { height: 300 } : {},
+            ]}
             multiline
             value={documentText}
             onChangeText={setDocumentText}
             placeholder="Document text will appear here after upload. You can also type or paste text directly."
             textAlignVertical="top"
           />
+          {documentText.length > 0 && (
+            <View style={styles.textInfoContainer}>
+              <Text style={styles.textInfoText}>
+                {documentText.length} characters |{" "}
+                {documentText.split(/\s+/).length} words
+              </Text>
+              <TouchableOpacity
+                onPress={() => setDocumentText("")}
+                style={styles.clearButton}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -283,6 +332,26 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: "#666",
+  },
+  textInfoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  textInfoText: {
+    fontSize: 14,
+    color: "#666",
+  },
+  clearButton: {
+    backgroundColor: "#2196f3",
+    padding: 8,
+    borderRadius: 4,
+  },
+  clearButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
 
