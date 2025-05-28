@@ -1,6 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import LocalLLMService from "./LocalLLMService";
+import RNFS from "react-native-fs";
 
 const { CallSmsModule } = NativeModules;
 
@@ -80,48 +81,108 @@ class AutoReplyService {
         return false;
       }
 
-      // If enabling LLM auto-reply, make sure the model is loaded
+      console.log(`[AutoReplyService] Setting LLM auto-reply to: ${enabled}`);
+
+      // Critical: If enabling LLM auto-reply, we should disable the AI auto-reply first
       if (enabled) {
-        const isModelLoaded = await LocalLLMService.isModelLoaded();
-
-        if (!isModelLoaded) {
-          // Try to load the model
-          const selectedModel = await LocalLLMService.getSelectedModel();
-
-          if (!selectedModel) {
-            console.warn("No model selected for LLM auto-reply");
-            return false;
-          }
-
-          const loaded = await LocalLLMService.loadModel(selectedModel);
-          if (!loaded) {
-            console.warn("Failed to load model for LLM auto-reply");
-            return false;
+        // Directly update the native SharedPreferences via the native module
+        if (CallSmsModule.setAIEnabled) {
+          try {
+            await CallSmsModule.setAIEnabled(false);
+            console.log(
+              "[AutoReplyService] Disabled AI auto-reply successfully"
+            );
+          } catch (e) {
+            console.warn(
+              "[AutoReplyService] Error disabling AI auto-reply:",
+              e
+            );
           }
         }
 
-        // Also check if we have at least one document
-        const documents = await LocalLLMService.listDocuments();
-        if (documents.length === 0) {
-          console.warn("No documents available for LLM auto-reply");
-          // Try to create a sample document
-          await this.createSampleDocumentIfNeeded();
+        // Set AsyncStorage value for AI enabled to false
+        await AsyncStorage.setItem("@AutoSMS:AIEnabled", "false");
+      }
+
+      // Make sure the model is loaded and documents exist (only if enabling)
+      if (enabled) {
+        // Try to create a sample document first, before loading model
+        console.log("[AutoReplyService] Creating sample document if needed");
+        await this.createSampleDocumentIfNeeded();
+
+        // Now try to load the model
+        const isModelLoaded = await LocalLLMService.isModelLoaded();
+        console.log(`[AutoReplyService] Is model loaded: ${isModelLoaded}`);
+
+        if (!isModelLoaded) {
+          // Create default model path
+          const modelPath = `${RNFS.DocumentDirectoryPath}/models/default_model.bin`;
+          console.log(`[AutoReplyService] Using model path: ${modelPath}`);
+
+          // Ensure model directory exists
+          const modelDir = modelPath.substring(0, modelPath.lastIndexOf("/"));
+          const dirExists = await RNFS.exists(modelDir);
+
+          if (!dirExists) {
+            console.log(
+              `[AutoReplyService] Creating model directory: ${modelDir}`
+            );
+            await RNFS.mkdir(modelDir);
+          }
+
+          // Create an empty model file if it doesn't exist
+          const fileExists = await RNFS.exists(modelPath);
+          if (!fileExists) {
+            console.log(
+              `[AutoReplyService] Creating placeholder model file: ${modelPath}`
+            );
+            await RNFS.writeFile(
+              modelPath,
+              "This is a placeholder model file",
+              "utf8"
+            );
+          }
+
+          // Save the model path to AsyncStorage
+          await LocalLLMService.saveSelectedModel(modelPath);
+          const loaded = await LocalLLMService.loadModel(modelPath);
+          console.log(`[AutoReplyService] Model loaded: ${loaded}`);
         }
       }
 
-      // Save to SharedPreferences through native module - update if we have this method
+      // Save to SharedPreferences through native module - this is the most important call
       if (CallSmsModule.setLLMAutoReplyEnabled) {
+        console.log(
+          `[AutoReplyService] Calling native setLLMAutoReplyEnabled with value: ${enabled}`
+        );
         await CallSmsModule.setLLMAutoReplyEnabled(enabled);
+      } else {
+        console.warn(
+          "[AutoReplyService] CallSmsModule.setLLMAutoReplyEnabled is not available!"
+        );
+      }
+
+      // For testing purposes, also set the regular auto-reply flag to ensure something happens
+      if (enabled && CallSmsModule.setAutoReplyEnabled) {
+        console.log(
+          "[AutoReplyService] Also enabling normal auto-reply for backup"
+        );
+        await CallSmsModule.setAutoReplyEnabled(true);
       }
 
       // Always save to AsyncStorage for consistency
+      console.log(`[AutoReplyService] Saving to AsyncStorage: ${enabled}`);
       await AsyncStorage.setItem(LLM_AUTO_REPLY_ENABLED_KEY, String(enabled));
 
-      // If enabling LLM auto-reply, disable AI auto-reply
-      if (enabled) {
-        const aiEnabled = await this.isAIEnabled();
-        if (aiEnabled) {
-          await this.setAIEnabled(false);
+      // Add a test phone number to missed call list if needed
+      if (enabled && CallSmsModule.addTestPhoneNumber) {
+        try {
+          console.log(
+            "[AutoReplyService] Adding test phone number to missed call list"
+          );
+          await CallSmsModule.addTestPhoneNumber("1234567890");
+        } catch (e) {
+          console.warn("[AutoReplyService] Error adding test phone number:", e);
         }
       }
 

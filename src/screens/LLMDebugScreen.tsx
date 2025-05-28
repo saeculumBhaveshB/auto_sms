@@ -347,6 +347,52 @@ A: When you miss a call, the app sends an automatic SMS. When they reply, our lo
     }
   };
 
+  const forceEnableAutoReply = async () => {
+    setLoading(true);
+    addLog("🔥 Forcing all auto-reply systems ON...");
+
+    try {
+      // 1. First enable LLM auto-reply via AutoReplyService
+      const result1 = await AutoReplyService.setLLMAutoReplyEnabled(true);
+      addLog(`LLM auto-reply enabled: ${result1}`);
+
+      // 2. Directly call native methods
+      if (CallSmsModule.setLLMAutoReplyEnabled) {
+        const result2 = await CallSmsModule.setLLMAutoReplyEnabled(true);
+        addLog(`Native LLM auto-reply set: ${result2}`);
+      }
+
+      if (CallSmsModule.setAutoReplyEnabled) {
+        const result3 = await CallSmsModule.setAutoReplyEnabled(true);
+        addLog(`Native auto-reply set: ${result3}`);
+      }
+
+      // 3. Add test phone number
+      if (CallSmsModule.addTestPhoneNumber) {
+        const testNumber = "1234567890";
+        const result4 = await CallSmsModule.addTestPhoneNumber(testNumber);
+        addLog(`Test number added: ${result4}`);
+        setTestPhoneNumber(testNumber);
+      }
+
+      // 4. Refresh state
+      setAutoReplyEnabled(true);
+      setLlmAutoReplyEnabled(true);
+
+      // 5. Show success message
+      Alert.alert(
+        "Success",
+        "All auto-reply systems have been activated. You can now test sending messages."
+      );
+    } catch (error) {
+      console.error("Error forcing auto-reply:", error);
+      addLog(`ERROR: ${error}`);
+      Alert.alert("Error", `Failed to force enable auto-reply: ${error}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container}>
       {loading && (
@@ -467,6 +513,13 @@ A: When you miss a call, the app sends an automatic SMS. When they reply, our lo
           onPress={sendTestSms}
         >
           <Text style={styles.buttonText}>Send Test SMS</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#E91E63" }]}
+          onPress={forceEnableAutoReply}
+        >
+          <Text style={styles.buttonText}>🔥 FORCE ENABLE ALL</Text>
         </TouchableOpacity>
       </View>
 
