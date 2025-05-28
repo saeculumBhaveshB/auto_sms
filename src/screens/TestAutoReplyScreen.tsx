@@ -14,6 +14,7 @@ import {
   PermissionsAndroid,
 } from "react-native";
 import AutoReplyToggle from "../components/AutoReplyToggle";
+import LLMAutoReplyToggle from "../components/LLMAutoReplyToggle";
 import PermissionsManager from "../utils/PermissionsManager";
 
 const { AutoReplyModule } = NativeModules;
@@ -212,6 +213,10 @@ const TestAutoReplyScreen: React.FC = () => {
       </View>
 
       <View style={styles.section}>
+        <LLMAutoReplyToggle />
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>How It Works</Text>
         <Text style={styles.instructionText}>
           1. When someone calls and doesn't reach you, the app sends them a
@@ -233,6 +238,30 @@ const TestAutoReplyScreen: React.FC = () => {
           Note: You don't need an OpenAI API key for the basic auto-reply
           function. The "No API key found in storage" warning is only relevant
           for AI-powered responses, not for the simple "Yes I am" auto-reply.
+        </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Document-Based LLM Auto-Reply</Text>
+        <Text style={styles.instructionText}>
+          1. Upload documents in the LLM Setup screen to provide context for
+          auto-replies
+        </Text>
+        <Text style={styles.instructionText}>
+          2. Enable the LLM auto-reply feature using the toggle above
+        </Text>
+        <Text style={styles.instructionText}>
+          3. When someone replies to a missed call message, the app will use the
+          local LLM to generate a response based on your documents
+        </Text>
+        <Text style={styles.instructionText}>
+          4. This provides more intelligent, context-aware responses than the
+          simple "Yes I am" reply
+        </Text>
+        <Text style={styles.noteText}>
+          Note: The document-based LLM runs completely on your device for
+          privacy. Responses may take a moment to generate depending on your
+          device speed and document complexity.
         </Text>
       </View>
 

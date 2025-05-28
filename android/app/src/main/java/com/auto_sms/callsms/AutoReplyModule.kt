@@ -9,6 +9,9 @@ class AutoReplyModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     
     // Auto-reply feature keys
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
+    // Document-based LLM auto-reply keys
+    private val LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled"
+    private val LLM_CONTEXT_LENGTH_KEY = "@AutoSMS:LLMContextLength"
     
     override fun getName(): String {
         return "AutoReplyModule"
@@ -38,6 +41,58 @@ class AutoReplyModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         } catch (e: Exception) {
             Log.e(TAG, "Error setting auto-reply enabled: ${e.message}")
             promise.reject("SET_AUTO_REPLY_ERROR", "Failed to set auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun isLLMAutoReplyEnabled(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val enabled = sharedPrefs.getBoolean(LLM_AUTO_REPLY_ENABLED_KEY, false)
+            Log.d(TAG, "LLM auto-reply enabled check: $enabled")
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting LLM auto-reply enabled: ${e.message}")
+            promise.reject("GET_LLM_AUTO_REPLY_ERROR", "Failed to get LLM auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setLLMAutoReplyEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            // Save setting to SharedPreferences for use when app is killed
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean(LLM_AUTO_REPLY_ENABLED_KEY, enabled).apply()
+            Log.d(TAG, "LLM auto-reply feature ${if (enabled) "enabled" else "disabled"}")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting LLM auto-reply enabled: ${e.message}")
+            promise.reject("SET_LLM_AUTO_REPLY_ERROR", "Failed to set LLM auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun getLLMContextLength(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val contextLength = sharedPrefs.getInt(LLM_CONTEXT_LENGTH_KEY, 2048)
+            promise.resolve(contextLength)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting LLM context length: ${e.message}")
+            promise.reject("GET_LLM_CONTEXT_LENGTH_ERROR", "Failed to get LLM context length: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setLLMContextLength(length: Int, promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putInt(LLM_CONTEXT_LENGTH_KEY, length).apply()
+            Log.d(TAG, "Set LLM context length to $length")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting LLM context length: ${e.message}")
+            promise.reject("SET_LLM_CONTEXT_LENGTH_ERROR", "Failed to set LLM context length: ${e.message}")
         }
     }
     

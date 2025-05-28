@@ -1,7 +1,7 @@
 import { NativeModules, Platform, NativeEventEmitter } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import PermissionsService from "./PermissionsService";
-import AIService from "./AIService";
+import LocalLLMService from "./LocalLLMService";
 
 const { CallSmsModule } = NativeModules;
 const eventEmitter = new NativeEventEmitter(CallSmsModule);
@@ -108,10 +108,12 @@ class CallSmsService {
   private handleSmsReceived = async (data: any) => {
     console.log("SMS received:", data);
 
-    // If AI SMS is not enabled, just log the message
-    const aiEnabled = await this.isAIEnabled();
-    if (!aiEnabled) {
-      console.log("AI SMS is disabled. Not responding to incoming message.");
+    // If LLM auto-reply is not enabled, just log the message
+    const llmEnabled = await this.isLLMAutoReplyEnabled();
+    if (!llmEnabled) {
+      console.log(
+        "LLM auto-reply is disabled. Not responding to incoming message."
+      );
       return;
     }
 
@@ -119,13 +121,15 @@ class CallSmsService {
       // Check if this is a response to a missed call SMS we sent earlier
       const { phoneNumber, message } = data;
 
-      // Get the AI-generated response
-      const aiResponse = await AIService.generateResponse(phoneNumber, message);
+      console.log("Generating LLM response to SMS from:", phoneNumber);
 
-      // Send the AI response
-      await this.sendSms(phoneNumber, aiResponse);
+      // Get the LLM-generated response
+      const llmResponse = await LocalLLMService.generateAnswer(message);
+
+      // Send the LLM response
+      await this.sendSms(phoneNumber, llmResponse);
     } catch (error) {
-      console.error("Error handling incoming SMS:", error);
+      console.error("Error handling incoming SMS with LLM:", error);
     }
   };
 
@@ -514,6 +518,17 @@ class CallSmsService {
       return await NativeModules.CallSmsModule.processPendingMessages();
     } catch (error) {
       console.error("Error processing pending messages:", error);
+      return false;
+    }
+  }
+
+  // Add a method to check if LLM auto-reply is enabled
+  async isLLMAutoReplyEnabled(): Promise<boolean> {
+    try {
+      const value = await AsyncStorage.getItem("@AutoSMS:LLMAutoReplyEnabled");
+      return value === "true";
+    } catch (error) {
+      console.error("Error checking if LLM auto-reply is enabled:", error);
       return false;
     }
   }

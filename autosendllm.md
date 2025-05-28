@@ -1,85 +1,73 @@
-Project Requirements Document
+# Local LLM Auto-Reply Integration Guide
 
-Feature: Document Upload and Local LLM Integration for Automated SMS Response
+This document outlines high-level steps for Cursor AI to implement a Local LLM–powered SMS auto-reply feature in a React Native + native Android application.
+It assumes existing LLM code is present; Cursor AI should review, refactor or replace as needed.
 
-Overview
+---
 
-The application will support uploading multiple document formats (e.g., PDF, DOCX, TXT) directly into the application without converting them into plain text initially. When a caller sends an SMS question after missing a call, a locally running LLM (e.g., via llama.cpp or MLC LLM) will automatically generate responses based on the uploaded documents.
+## 1. Review and Prepare Existing LLM Module
 
-Functional Requirements
+- Gather the current native LLM integration components in the project.
+- Identify how the model is being loaded, where inference is invoked, and how resources are managed.
+- Note any areas where document parsing or SMS hooks are entwined with the logic, marking them for refactoring or enhancement.
 
-1. Document Upload
+---
 
-Users can upload multiple documents simultaneously.
+## 2. Configure and Initialize the Local LLM Runtime
 
-Supported formats include PDF, DOCX, and TXT.
+- Choose the local inference engine (llama.cpp or MLC LLM) best suited for on-device performance.
+- Ensure the application is configured to include the necessary native libraries and model files.
+- On enabling auto-reply, initialize the LLM model in background, preparing it for subsequent inference requests.
 
-The documents must be stored in their original format within the application's local storage without converting to plain text upfront.
+---
 
-2. Local LLM Integration
+## 3. Provide Document Access to the LLM
 
-The application will utilize llama.cpp or MLC LLM to run a quantized local LLM model directly on the user's device.
+- Maintain uploaded documents in their original format within the app’s storage.
+- Enable the LLM runtime to access and parse these files at inference time, without upfront text conversion.
+- Implement a document registry that the LLM engine can query to locate and read files dynamically.
 
-The model will have the capability to interpret and generate answers directly from the documents in their native format.
+---
 
-The LLM integration must function entirely offline without reliance on external services or APIs.
+## 4. Build the Inference Process
 
-3. Automated SMS Response
+- When a new SMS arrives (after a missed call), extract the text of the SMS message.
+- Pass the SMS text and references to the uploaded documents into the LLM inference pipeline.
+- Allow the LLM to read from the documents, interpret the content, and generate a coherent answer.
 
-The app will listen for incoming SMS questions triggered after a missed call event.
+---
 
-Incoming questions are processed by the local LLM, utilizing the uploaded documents as the knowledge base.
+## 5. Integrate with SMS Receiver for Auto-Reply
 
-The LLM will generate contextually relevant answers directly from the documents.
+- In the SMS listener logic, replace any static reply behavior with a call to the inference process.
+- Once the LLM returns its answer, format the response by prefixing it with “AI:”.
+- If the LLM cannot formulate a relevant answer, fallback to a generic message indicating inability to answer.
+- If the LLM initialization or document access fails due to lack of resources or offline state, send a predefined “not available” message.
 
-If the LLM cannot find a relevant answer, the default response should be:
+---
 
-AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.
+## 6. Lifecycle and Resource Management
 
-All responses generated must prefix with the tag "AI:".
+- Activate the LLM runtime only while auto-reply is enabled to conserve device memory and CPU.
+- Gracefully shut down or pause the LLM when auto-reply is turned off or the app is closed.
+- Ensure inference tasks run in background threads or services, keeping the UI responsive.
 
-Technical Requirements
+---
 
-Storage Management
+## 7. User Controls and Feedback
 
-Implement secure local storage management for uploaded documents within the app directory.
+- Provide a simple toggle in the React Native interface to enable or disable LLM-powered auto-replies.
+- Display real-time status messages: auto-reply on/off, inference success or fallback, and any errors encountered.
 
-LLM Runtime
+---
 
-Set up the llama.cpp or MLC LLM environment configured to run on Android.
+## 8. Validation and Quality Assurance
 
-Ensure optimization of LLM performance, considering mobile device hardware constraints (CPU, memory usage).
+- Test with a variety of document types and content to confirm accurate LLM-based replies.
+- Validate fallback messages for out-of-scope questions and offline conditions.
+- Monitor performance metrics (latency, memory usage) to ensure a smooth user experience.
 
-SMS Handling and Background Processing
+---
 
-Implement a background Android service to:
-
-Listen for SMS events.
-
-Feed the received SMS question directly into the LLM.
-
-Send automated SMS replies based on generated responses.
-
-User Interface Requirements
-
-Provide a simple and intuitive interface for document upload.
-
-Display statuses on-screen clearly indicating:
-
-The caller's phone number.
-
-The question received.
-
-The AI-generated response.
-
-Privacy and Security
-
-Ensure all processes (document storage, SMS handling, LLM inference) run entirely on-device.
-
-No user data or uploaded document content should leave the user's device at any time.
-
-Testing and Validation
-
-Verify LLM functionality with various document types and content complexity.
-
-Test system responses for accuracy, relevance, and proper fallback behavior when answers are unavailable.
+**Implementation Note:**
+Cursor AI should interpret these high-level steps into the required native and React Native integrations, ensuring that no explicit code samples are embedded in the document itself.

@@ -1,6 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "@react-native-documents/picker";
+import RNFS from "react-native-fs";
 
 const { LocalLLMModule } = NativeModules;
 
@@ -382,6 +383,45 @@ class LocalLLMService {
       return await AsyncStorage.getItem(LLM_SELECTED_MODEL_KEY);
     } catch (error) {
       console.error("Error getting selected model:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a sample document for testing
+   */
+  async createSampleDocument(content: string): Promise<string | null> {
+    try {
+      if (!isNativeModuleAvailable()) {
+        console.warn(
+          "LocalLLMModule native module is not available. Did you rebuild the app?"
+        );
+        return null;
+      }
+
+      // Create a temporary file name
+      const fileName = `sample_document_${Date.now()}.txt`;
+
+      // Use React Native's FileSystem to write content to a temp file
+      const tempPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+
+      // Write content to file
+      await RNFS.writeFile(tempPath, content, "utf8");
+
+      // Now upload this file as a document
+      console.log("Uploading sample document from:", tempPath);
+
+      const result = await LocalLLMModule.uploadDocument(
+        `file://${tempPath}`,
+        fileName
+      );
+
+      // Clean up temp file
+      await RNFS.unlink(tempPath).catch(() => {});
+
+      return result?.path || null;
+    } catch (error) {
+      console.error("Error creating sample document:", error);
       return null;
     }
   }

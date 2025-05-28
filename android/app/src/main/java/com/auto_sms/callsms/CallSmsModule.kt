@@ -24,6 +24,7 @@ import java.text.SimpleDateFormat
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.io.File
 
 class CallSmsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -812,5 +813,258 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     private fun generateAIResponseSync(caller: String, message: String): String {
         // Simple fallback response when local LLM is not available
         return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+    }
+
+    @ReactMethod
+    fun checkLLMStatus(promise: Promise) {
+        try {
+            Log.d(TAG, "🔍 DIAGNOSTIC - Running LLM status check")
+            
+            val diagnosticReport = Arguments.createMap()
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            
+            // Check enabled settings
+            val autoReplyEnabled = sharedPrefs.getBoolean("@AutoSMS:AutoReplyEnabled", false)
+            val llmAutoReplyEnabled = sharedPrefs.getBoolean("@AutoSMS:LLMAutoReplyEnabled", false)
+            val aiEnabled = sharedPrefs.getBoolean("@AutoSMS:AIEnabled", false)
+            
+            diagnosticReport.putBoolean("simpleAutoReplyEnabled", autoReplyEnabled)
+            diagnosticReport.putBoolean("llmAutoReplyEnabled", llmAutoReplyEnabled)
+            diagnosticReport.putBoolean("aiEnabled", aiEnabled)
+            
+            // Check documents directory
+            val documentsDir = File(reactApplicationContext.filesDir, "documents")
+            val exists = documentsDir.exists()
+            diagnosticReport.putBoolean("documentsDirectoryExists", exists)
+            
+            if (exists) {
+                val documentFiles = documentsDir.listFiles()
+                val documentsArray = Arguments.createArray()
+                
+                if (documentFiles != null && documentFiles.isNotEmpty()) {
+                    for (file in documentFiles) {
+                        val docMap = Arguments.createMap()
+                        docMap.putString("name", file.name)
+                        docMap.putDouble("size", file.length().toDouble())
+                        docMap.putDouble("lastModified", file.lastModified().toDouble())
+                        documentsArray.pushMap(docMap)
+                    }
+                }
+                
+                diagnosticReport.putArray("documents", documentsArray)
+                diagnosticReport.putInt("documentCount", documentFiles?.size ?: 0)
+            } else {
+                diagnosticReport.putInt("documentCount", 0)
+            }
+            
+            // Check if the LLM module is available
+            try {
+                val reactContext = reactApplicationContext
+                val llmModule = reactContext.getNativeModule(com.auto_sms.llm.LocalLLMModule::class.java)
+                val isAvailable = llmModule != null
+                diagnosticReport.putBoolean("llmModuleAvailable", isAvailable)
+                
+                if (isAvailable) {
+                    // Check if a model is loaded
+                    val isModelLoaded = llmModule!!.isModelLoadedSync()
+                    diagnosticReport.putBoolean("modelLoaded", isModelLoaded)
+                    
+                    // Try a test generation if model is loaded
+                    if (isModelLoaded) {
+                        val testQuestion = "Hello, is the LLM working?"
+                        val response = llmModule.generateAnswerSync(testQuestion, 0.7f, 100)
+                        diagnosticReport.putString("testResponse", response)
+                        diagnosticReport.putBoolean("testPassed", response != null && response.isNotEmpty())
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error accessing LLM module", e)
+                diagnosticReport.putBoolean("llmModuleAvailable", false)
+                diagnosticReport.putString("llmError", e.message)
+            }
+            
+            // Return the diagnostic report
+            promise.resolve(diagnosticReport)
+            
+            // Also log the report
+            Log.d(TAG, "📊 LLM DIAGNOSTIC REPORT: $diagnosticReport")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking LLM status", e)
+            promise.reject("CHECK_LLM_ERROR", "Failed to check LLM status: ${e.message}")
+        }
+    }
+
+    /**
+     * Set LLM auto-reply enabled state
+     */
+    @ReactMethod
+    fun setLLMAutoReplyEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            Log.d(TAG, "🤖 Setting LLM auto-reply enabled: $enabled")
+            
+            // Save setting to SharedPreferences for use when app is killed
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("@AutoSMS:LLMAutoReplyEnabled", enabled).apply()
+            
+            // Log the current state of all auto-reply settings for debugging
+            val autoReplyEnabled = sharedPrefs.getBoolean("@AutoSMS:AutoReplyEnabled", false)
+            val aiEnabled = sharedPrefs.getBoolean("@AutoSMS:AIEnabled", false)
+            Log.d(TAG, "📊 Auto-reply settings after update:")
+            Log.d(TAG, "   • Simple Auto-Reply: $autoReplyEnabled")
+            Log.d(TAG, "   • LLM Auto-Reply: $enabled")
+            Log.d(TAG, "   • AI Enabled: $aiEnabled")
+            
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error setting LLM auto-reply enabled: ${e.message}")
+            promise.reject("SET_LLM_AUTO_REPLY_ERROR", "Failed to set LLM auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    /**
+     * Check if LLM auto-reply is enabled
+     */
+    @ReactMethod
+    fun isLLMAutoReplyEnabled(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val enabled = sharedPrefs.getBoolean("@AutoSMS:LLMAutoReplyEnabled", false)
+            Log.d(TAG, "🤖 LLM auto-reply enabled status: $enabled")
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking if LLM auto-reply is enabled: ${e.message}")
+            promise.reject("GET_LLM_AUTO_REPLY_ERROR", "Failed to get LLM auto-reply enabled: ${e.message}")
+        }
+    }
+
+    /**
+     * Set simple auto-reply enabled state directly
+     */
+    @ReactMethod
+    fun setAutoReplyEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            Log.e(TAG, "🔧 Setting auto reply enabled: $enabled")
+            // Save setting to SharedPreferences for use when app is killed
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("@AutoSMS:AutoReplyEnabled", enabled).apply()
+            
+            // Log the update for verification
+            Log.e(TAG, "✅ Auto reply enabled set to: $enabled")
+            Log.e(TAG, "📊 Current SharedPrefs values:")
+            Log.e(TAG, "   • Auto-Reply: ${sharedPrefs.getBoolean("@AutoSMS:AutoReplyEnabled", false)}")
+            Log.e(TAG, "   • LLM Auto-Reply: ${sharedPrefs.getBoolean("@AutoSMS:LLMAutoReplyEnabled", false)}")
+            
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error setting auto reply enabled: ${e.message}")
+            promise.reject("SET_AUTO_REPLY_ERROR", "Failed to set auto reply enabled: ${e.message}")
+        }
+    }
+
+    /**
+     * Check if simple auto-reply is enabled
+     */
+    @ReactMethod
+    fun isAutoReplyEnabled(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val enabled = sharedPrefs.getBoolean("@AutoSMS:AutoReplyEnabled", false)
+            
+            // Log for debugging
+            Log.e(TAG, "🔍 Checking auto-reply enabled status: $enabled")
+            
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking auto reply enabled: ${e.message}")
+            promise.reject("GET_AUTO_REPLY_ERROR", "Failed to check auto reply enabled: ${e.message}")
+        }
+    }
+    
+    /**
+     * Add a test phone number to the missed call numbers list
+     */
+    @ReactMethod
+    fun addTestPhoneNumber(phoneNumber: String, promise: Promise) {
+        try {
+            Log.e(TAG, "📞 Adding test phone number to missed call list: $phoneNumber")
+            
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val missedCallNumbers = sharedPrefs.getStringSet("missedCallNumbers", HashSet()) ?: HashSet()
+            
+            // Add the test entry with current timestamp
+            val newMissedCallNumbers = HashSet(missedCallNumbers)
+            val timestamp = System.currentTimeMillis()
+            newMissedCallNumbers.add("$phoneNumber:$timestamp")
+            
+            // Save back to SharedPreferences
+            sharedPrefs.edit().putStringSet("missedCallNumbers", newMissedCallNumbers).apply()
+            
+            // Verify by reading back
+            val updatedSet = sharedPrefs.getStringSet("missedCallNumbers", HashSet()) ?: HashSet()
+            Log.e(TAG, "✅ Test phone number added. Currently ${updatedSet.size} entries:")
+            for (entry in updatedSet) {
+                Log.e(TAG, "   • $entry")
+            }
+            
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error adding test phone number: ${e.message}")
+            promise.reject("ADD_TEST_NUMBER_ERROR", "Failed to add test phone number: ${e.message}")
+        }
+    }
+    
+    /**
+     * Send a test SMS for debugging
+     */
+    @ReactMethod
+    fun sendTestSms(phoneNumber: String, message: String, promise: Promise) {
+        try {
+            Log.e(TAG, "🧪 Sending test SMS to $phoneNumber: $message")
+            
+            val smsManager = SmsManager.getDefault()
+            
+            // Add FLAG_IMMUTABLE for Android 12+ compatibility
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            
+            // Prepare PendingIntent for SMS
+            val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
+            val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
+            
+            // Split message if it's too long
+            val parts = smsManager.divideMessage(message)
+            
+            try {
+                // Send SMS
+                if (parts.size > 1) {
+                    // Create PendingIntent array for multipart SMS
+                    val sentIntents = ArrayList<PendingIntent>().apply {
+                        repeat(parts.size) { i ->
+                            add(PendingIntent.getBroadcast(reactApplicationContext, i, sentIntent, pendingIntentFlags))
+                        }
+                    }
+                    
+                    Log.e(TAG, "📤 Sending multipart test SMS")
+                    smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
+                    Log.e(TAG, "✅ Sent multipart test SMS successfully")
+                } else {
+                    Log.e(TAG, "📤 Sending single part test SMS")
+                    smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
+                    Log.e(TAG, "✅ Sent single test SMS successfully")
+                }
+                
+                promise.resolve(true)
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error sending test SMS: ${e.message}")
+                e.printStackTrace()
+                promise.reject("SEND_TEST_SMS_ERROR", "Failed to send test SMS: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in sendTestSms: ${e.message}")
+            promise.reject("SEND_TEST_SMS_ERROR", "Failed to send test SMS: ${e.message}")
+        }
     }
 } 
