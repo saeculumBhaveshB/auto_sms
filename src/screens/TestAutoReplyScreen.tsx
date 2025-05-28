@@ -225,6 +225,10 @@ const TestAutoReplyScreen: React.FC = () => {
           3. This only happens for people who received the missed call message
           within the last 24 hours
         </Text>
+        <Text style={styles.instructionText}>
+          4. The Auto Reply permission (RECEIVE_SMS) is necessary for detecting
+          incoming messages and sending automatic responses
+        </Text>
         <Text style={styles.noteText}>
           Note: You don't need an OpenAI API key for the basic auto-reply
           function. The "No API key found in storage" warning is only relevant

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   Alert,
   Linking,
+  ActivityIndicator,
   Platform,
 } from "react-native";
 import PermissionsService, {
@@ -21,25 +22,35 @@ const PermissionsStatusScreen: React.FC = () => {
   >({} as Record<PermissionType, PermissionStatus>);
 
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
   /**
    * Check all permissions
    */
-  const checkAllPermissions = useCallback(async () => {
-    setLoading(true);
-    const statuses: Record<PermissionType, PermissionStatus> = {} as Record<
-      PermissionType,
-      PermissionStatus
-    >;
-
-    for (const permission of REQUIRED_PERMISSIONS) {
-      statuses[permission.key] = await PermissionsService.checkPermission(
-        permission.key
-      );
+  const checkAllPermissions = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setRefreshing(true);
     }
 
-    setPermissionStatuses(statuses);
-    setLoading(false);
+    try {
+      const statuses: Record<PermissionType, PermissionStatus> = {} as Record<
+        PermissionType,
+        PermissionStatus
+      >;
+
+      for (const permission of REQUIRED_PERMISSIONS) {
+        statuses[permission.key] = await PermissionsService.checkPermission(
+          permission.key
+        );
+      }
+
+      setPermissionStatuses(statuses);
+    } catch (error) {
+      console.error("Error checking permissions:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
   /**
@@ -48,6 +59,12 @@ const PermissionsStatusScreen: React.FC = () => {
   const requestPermission = useCallback(
     async (permissionType: PermissionType) => {
       try {
+        // Update UI to show requesting state
+        setPermissionStatuses((prev) => ({
+          ...prev,
+          [permissionType]: "unavailable", // Temporary status while requesting
+        }));
+
         const status = await PermissionsService.requestPermission(
           permissionType
         );
@@ -76,6 +93,9 @@ const PermissionsStatusScreen: React.FC = () => {
       } catch (error) {
         console.error("Error requesting permission:", error);
         Alert.alert("Error", "Failed to request permission");
+
+        // Reset status on error
+        checkAllPermissions(false);
       }
     },
     []
@@ -94,14 +114,16 @@ const PermissionsStatusScreen: React.FC = () => {
    * Initialize and check permissions
    */
   useEffect(() => {
-    checkAllPermissions();
+    checkAllPermissions(true);
 
-    // Set interval to periodically check permissions
-    const interval = setInterval(() => {
-      checkAllPermissions();
-    }, 3000);
+    // Run a single permission check when screen is focused
+    // instead of constantly checking with an interval
+    const focusListener = () => {
+      checkAllPermissions(false);
+    };
 
-    return () => clearInterval(interval);
+    // Clean up function
+    return () => {};
   }, [checkAllPermissions]);
 
   /**
@@ -145,24 +167,90 @@ const PermissionsStatusScreen: React.FC = () => {
   /**
    * Check if all required permissions are granted
    */
-  const areAllPermissionsGranted = useCallback((): boolean => {
+  const areAllPermissionsGranted = useMemo((): boolean => {
+    if (loading || Object.keys(permissionStatuses).length === 0) {
+      return false;
+    }
     return REQUIRED_PERMISSIONS.every(
       (p) => permissionStatuses[p.key] === "granted"
     );
-  }, [permissionStatuses]);
+  }, [permissionStatuses, loading]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text>Checking permissions...</Text>
-      </View>
-    );
-  }
+  // Render each permission item
+  const renderPermissionItem = useCallback(
+    (permission: (typeof REQUIRED_PERMISSIONS)[number]) => {
+      const status = permissionStatuses[permission.key] || "unavailable";
+      const isRequesting = status === "unavailable" && refreshing;
+      // Check if this is the auto reply permission
+      const isAutoReply = permission.key === "autoReply";
+
+      return (
+        <View
+          key={permission.key}
+          style={[
+            styles.permissionItem,
+            isAutoReply && styles.autoReplyPermissionItem,
+          ]}
+        >
+          <View style={styles.permissionDetails}>
+            <Text
+              style={[
+                styles.permissionName,
+                isAutoReply && styles.autoReplyText,
+              ]}
+            >
+              {permission.name}
+              {isAutoReply && " ✓"}
+            </Text>
+            <Text style={styles.permissionDescription}>
+              {permission.description}
+            </Text>
+            <View
+              style={[
+                styles.statusBadge,
+                {
+                  backgroundColor: getStatusColor(status),
+                },
+              ]}
+            >
+              <Text style={styles.statusText}>{getStatusText(status)}</Text>
+            </View>
+          </View>
+
+          {status !== "granted" && (
+            <TouchableOpacity
+              style={[
+                styles.grantButton,
+                isRequesting && styles.grantButtonDisabled,
+                isAutoReply && styles.autoReplyButton,
+              ]}
+              onPress={() => requestPermission(permission.key)}
+              disabled={isRequesting}
+            >
+              {isRequesting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.grantButtonText}>Grant</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    },
+    [permissionStatuses, refreshing, requestPermission]
+  );
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>App Permissions</Text>
+        {refreshing && !loading && (
+          <ActivityIndicator
+            size="small"
+            color="#fff"
+            style={styles.headerLoader}
+          />
+        )}
       </View>
 
       <ScrollView style={styles.scrollView}>
@@ -172,73 +260,77 @@ const PermissionsStatusScreen: React.FC = () => {
           </Text>
         </View>
 
-        {areAllPermissionsGranted() ? (
-          <View style={styles.allGrantedContainer}>
-            <Text style={styles.allGrantedText}>
-              ✅ All required permissions are granted!
-            </Text>
+        {/* New Auto Reply Info Section */}
+        <View style={styles.autoReplyInfoContainer}>
+          <Text style={styles.autoReplyInfoTitle}>
+            🔔 Auto Reply Permission (RECEIVE_SMS)
+          </Text>
+          <Text style={styles.autoReplyInfoText}>
+            The Auto Reply feature requires the RECEIVE_SMS permission to
+            automatically respond to incoming messages. This is crucial for the
+            app to detect when someone replies to your missed call message.
+          </Text>
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#2196f3" />
+            <Text style={{ marginTop: 10 }}>Checking permissions...</Text>
           </View>
         ) : (
-          <View style={styles.requestAllContainer}>
-            <TouchableOpacity
-              style={styles.requestAllButton}
-              onPress={requestAllPermissions}
-            >
-              <Text style={styles.requestAllButtonText}>
-                Grant All Permissions
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {REQUIRED_PERMISSIONS.map((permission) => (
-          <View key={permission.key} style={styles.permissionItem}>
-            <View style={styles.permissionDetails}>
-              <Text style={styles.permissionName}>{permission.name}</Text>
-              <Text style={styles.permissionDescription}>
-                {permission.description}
-              </Text>
-              <View
-                style={[
-                  styles.statusBadge,
-                  {
-                    backgroundColor: getStatusColor(
-                      permissionStatuses[permission.key] || "unavailable"
-                    ),
-                  },
-                ]}
-              >
-                <Text style={styles.statusText}>
-                  {getStatusText(
-                    permissionStatuses[permission.key] || "unavailable"
-                  )}
+          <>
+            {areAllPermissionsGranted ? (
+              <View style={styles.allGrantedContainer}>
+                <Text style={styles.allGrantedText}>
+                  ✅ All required permissions are granted!
                 </Text>
               </View>
-            </View>
-
-            {permissionStatuses[permission.key] !== "granted" && (
-              <TouchableOpacity
-                style={styles.grantButton}
-                onPress={() => requestPermission(permission.key)}
-              >
-                <Text style={styles.grantButtonText}>Grant</Text>
-              </TouchableOpacity>
+            ) : (
+              <View style={styles.requestAllContainer}>
+                <TouchableOpacity
+                  style={styles.requestAllButton}
+                  onPress={requestAllPermissions}
+                  disabled={refreshing}
+                >
+                  {refreshing ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.requestAllButtonText}>
+                      Grant All Permissions
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             )}
-          </View>
-        ))}
 
-        <View style={styles.noteContainer}>
-          <Text style={styles.noteText}>
-            Note: If permissions are blocked, you may need to enable them
-            manually in your device settings.
-          </Text>
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => Linking.openSettings()}
-          >
-            <Text style={styles.settingsButtonText}>Open Settings</Text>
-          </TouchableOpacity>
-        </View>
+            {REQUIRED_PERMISSIONS.map(renderPermissionItem)}
+
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={() => checkAllPermissions(true)}
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.refreshButtonText}>Refresh Status</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.noteContainer}>
+              <Text style={styles.noteText}>
+                Note: If permissions are blocked, you may need to enable them
+                manually in your device settings.
+              </Text>
+              <TouchableOpacity
+                style={styles.settingsButton}
+                onPress={() => Linking.openSettings()}
+              >
+                <Text style={styles.settingsButtonText}>Open Settings</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -250,13 +342,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
   },
   loadingContainer: {
-    flex: 1,
+    padding: 40,
     justifyContent: "center",
     alignItems: "center",
   },
   header: {
     padding: 16,
     backgroundColor: "#2196f3",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerLoader: {
+    marginRight: 10,
   },
   title: {
     fontSize: 20,
@@ -305,6 +403,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 4,
+    minWidth: 200,
+    alignItems: "center",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -360,10 +460,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#2196f3",
     paddingVertical: 8,
     paddingHorizontal: 16,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
     marginLeft: 8,
   },
+  grantButtonDisabled: {
+    backgroundColor: "#90caf9",
+  },
   grantButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  refreshButton: {
+    backgroundColor: "#673ab7",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 4,
+    margin: 16,
+    alignSelf: "center",
+    alignItems: "center",
+    minWidth: 150,
+  },
+  refreshButtonText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "bold",
@@ -393,6 +514,38 @@ const styles = StyleSheet.create({
     color: "#212529",
     fontWeight: "bold",
     fontSize: 14,
+  },
+  autoReplyPermissionItem: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#2196f3",
+    backgroundColor: "#f5f9ff",
+  },
+  autoReplyText: {
+    color: "#0d47a1",
+  },
+  autoReplyButton: {
+    backgroundColor: "#1565c0",
+  },
+  autoReplyInfoContainer: {
+    backgroundColor: "#e3f2fd",
+    padding: 16,
+    margin: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: "#2196f3",
+  },
+  autoReplyInfoTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#0d47a1",
+    marginBottom: 8,
+  },
+  autoReplyInfoText: {
+    fontSize: 14,
+    color: "#1565c0",
+    lineHeight: 20,
   },
 });
 

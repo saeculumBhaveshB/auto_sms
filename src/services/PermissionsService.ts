@@ -18,7 +18,8 @@ export type PermissionType =
   | "phoneState"
   | "sendSms"
   | "readSms"
-  | "readContacts";
+  | "readContacts"
+  | "autoReply";
 
 // Define permission info for UI
 export interface PermissionInfo {
@@ -59,6 +60,12 @@ export const REQUIRED_PERMISSIONS: PermissionInfo[] = [
     name: "Read Contacts",
     description: "Required to display contact names",
     androidPermission: PERMISSIONS.ANDROID.READ_CONTACTS,
+  },
+  {
+    key: "autoReply",
+    name: "Auto Reply",
+    description: "Required to automatically respond to incoming messages",
+    androidPermission: PERMISSIONS.ANDROID.RECEIVE_SMS,
   },
 ];
 
@@ -142,6 +149,8 @@ class PermissionsService {
       "callLog",
       "phoneState",
       "sendSms",
+      "readSms",
+      "autoReply",
     ];
 
     for (const permissionType of criticalPermissions) {
