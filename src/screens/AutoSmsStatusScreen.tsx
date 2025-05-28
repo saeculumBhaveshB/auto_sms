@@ -49,31 +49,6 @@ const AutoSmsStatusScreen: React.FC = () => {
   }, []);
 
   /**
-   * Handle app state changes to sync native data
-   */
-  const handleAppStateChange = useCallback(
-    (nextAppState: string) => {
-      if (nextAppState === "active") {
-        // App came to foreground, sync history from native storage
-        syncNativeHistory();
-
-        // Also re-check permissions and monitoring status
-        checkPermissions().then((hasPermissions) => {
-          if (hasPermissions) {
-            const isMonitoring = CallSmsService.isMonitoringCalls();
-            if (!isMonitoring) {
-              CallSmsService.startMonitoringCalls().catch((err) => {
-                console.warn("Error starting call monitoring:", err);
-              });
-            }
-          }
-        });
-      }
-    },
-    [checkPermissions, syncNativeHistory]
-  );
-
-  /**
    * Load SMS history and settings
    */
   const loadData = useCallback(
@@ -95,11 +70,20 @@ const AutoSmsStatusScreen: React.FC = () => {
         setIsAutoSmsEnabled(autoSmsEnabled);
 
         // Check monitoring status
-        const monitoring = CallSmsService.isMonitoringCalls();
-        setIsMonitoring(monitoring);
+        const isCurrentlyMonitoring = CallSmsService.isMonitoringCalls();
+        setIsMonitoring(isCurrentlyMonitoring);
 
-        // Start monitoring if enabled, not already monitoring, and has permissions
-        if (autoSmsEnabled && !monitoring && hasPermissions) {
+        // Only start monitoring if:
+        // 1. Auto SMS is enabled
+        // 2. We're not already monitoring
+        // 3. We have all necessary permissions
+        // 4. This is the first time we're loading (to avoid multiple starts)
+        if (
+          autoSmsEnabled &&
+          !isCurrentlyMonitoring &&
+          hasPermissions &&
+          showLoading
+        ) {
           try {
             const started = await CallSmsService.startMonitoringCalls();
             setIsMonitoring(started);
@@ -108,7 +92,6 @@ const AutoSmsStatusScreen: React.FC = () => {
             }
           } catch (err: any) {
             console.warn("Error starting call monitoring:", err.message);
-            // Don't show alert here - just quietly fail as permissions may not be ready
             setIsMonitoring(false);
           }
         }
@@ -121,6 +104,28 @@ const AutoSmsStatusScreen: React.FC = () => {
       }
     },
     [checkPermissions]
+  );
+
+  /**
+   * Handle app state changes to sync native data
+   */
+  const handleAppStateChange = useCallback(
+    (nextAppState: string) => {
+      if (nextAppState === "active") {
+        // App came to foreground, sync history from native storage
+        syncNativeHistory();
+
+        // Also re-check permissions and monitoring status
+        checkPermissions().then((hasPermissions) => {
+          if (hasPermissions) {
+            // Just check the monitoring status without attempting to start it again
+            const isCurrentlyMonitoring = CallSmsService.isMonitoringCalls();
+            setIsMonitoring(isCurrentlyMonitoring);
+          }
+        });
+      }
+    },
+    [checkPermissions, syncNativeHistory]
   );
 
   /**
@@ -273,10 +278,10 @@ const AutoSmsStatusScreen: React.FC = () => {
     // Load AI settings
     loadAISettings();
 
-    // Set up periodic permission checks (every 2 seconds when the screen is active)
+    // Set up permission check (reduced frequency to once every 5 seconds)
     const permissionCheckInterval = setInterval(() => {
       checkPermissions();
-    }, 2000);
+    }, 5000);
 
     // Set up app state change listener for syncing native data
     const appStateSubscription = AppState.addEventListener(

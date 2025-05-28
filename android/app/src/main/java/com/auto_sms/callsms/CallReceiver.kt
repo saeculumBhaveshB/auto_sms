@@ -66,16 +66,29 @@ class CallReceiver : BroadcastReceiver() {
                 lastPhoneState = TelephonyManager.CALL_STATE_OFFHOOK
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
-                if (lastPhoneState == TelephonyManager.CALL_STATE_RINGING && latestIncomingNumber != null) {
-                    // This indicates a missed call
+                // Only process as missed call if:
+                // 1. Last state was RINGING (not from app startup)
+                // 2. We have a phone number
+                // 3. The call started after the app was running (not old calls)
+                if (lastPhoneState == TelephonyManager.CALL_STATE_RINGING && 
+                    latestIncomingNumber != null && 
+                    callStart > 0) {
+                    
+                    // Calculate how long the call was ringing
                     val missedCallDuration = System.currentTimeMillis() - callStart
+                    
                     Log.d(TAG, "Missed call detected from: $latestIncomingNumber, duration: $missedCallDuration ms")
                     
-                    // Send SMS for the missed call
-                    sendSmsForMissedCall(context, latestIncomingNumber!!)
-                    
-                    // Also check call log to confirm it was missed (belt and suspenders approach)
-                    scheduleCallLogCheck(context)
+                    // Send SMS only for real missed calls (not app startup events)
+                    if (missedCallDuration > 1000) { // Only if call rang for at least 1 second
+                        // Send SMS for the missed call
+                        sendSmsForMissedCall(context, latestIncomingNumber!!)
+                        
+                        // Also check call log to confirm it was missed (belt and suspenders approach)
+                        scheduleCallLogCheck(context)
+                    } else {
+                        Log.d(TAG, "Ignoring potential false missed call (too short duration: $missedCallDuration ms)")
+                    }
                 }
                 lastPhoneState = TelephonyManager.CALL_STATE_IDLE
             }

@@ -69,6 +69,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         }
 
         try {
+            // Reset call state tracking variables to prevent false positives
+            lastPhoneState = TelephonyManager.CALL_STATE_IDLE
+            latestIncomingNumber = null
+            callStart = 0L
+            missedCallDetectedAt = System.currentTimeMillis()
+            
             // Start our foreground service for persistent monitoring
             val serviceIntent = Intent(reactApplicationContext, CallLogCheckService::class.java)
             
@@ -218,7 +224,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 lastPhoneState = TelephonyManager.CALL_STATE_OFFHOOK
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
-                if (lastPhoneState == TelephonyManager.CALL_STATE_RINGING && latestIncomingNumber != null) {
+                if (lastPhoneState == TelephonyManager.CALL_STATE_RINGING && latestIncomingNumber != null && callStart > 0) {
                     // This indicates a missed call
                     val missedCallDuration = System.currentTimeMillis() - callStart
                     Log.d(TAG, "Missed call detected from: $latestIncomingNumber, duration: $missedCallDuration ms")
@@ -274,10 +280,16 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     // Only consider missed calls from the last 5 minutes
                     val fiveMinutesAgo = System.currentTimeMillis() - 5 * 60 * 1000
                     
-                    if (date > fiveMinutesAgo && date > missedCallDetectedAt) {
+                    // Only process missed calls that:
+                    // 1. Are recent (within last 5 minutes)
+                    // 2. Happened after we started monitoring (missedCallDetectedAt is set when monitoring starts)
+                    // 3. Are newer than any missed calls we've already processed
+                    if (date > fiveMinutesAgo && date > missedCallDetectedAt && missedCallDetectedAt > 0) {
                         Log.d(TAG, "Found recent missed call from call log: $number at $date")
                         // Send SMS for this missed call
                         sendSmsForMissedCall(number)
+                    } else {
+                        Log.d(TAG, "Skipping missed call processing: call at $date, monitored since $missedCallDetectedAt")
                     }
                 }
             }
@@ -360,6 +372,13 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
 
     private fun sendSmsForMissedCall(phoneNumber: String) {
+        // Only proceed if this is a genuine missed call (not during initialization)
+        // Check if the missed call detection happened during normal operation
+        if (lastPhoneState != TelephonyManager.CALL_STATE_RINGING || callStart == 0L) {
+            Log.d(TAG, "Skipping auto-SMS for $phoneNumber - not a confirmed missed call")
+            return
+        }
+        
         // We'll use the default message for missed calls
         try {
             val smsMessage = DEFAULT_MESSAGE
@@ -378,6 +397,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             // Prepare PendingIntent for SMS
             val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
             val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
+            
+            Log.d(TAG, "Sending SMS to $phoneNumber for a missed call")
             
             // Send SMS
             if (parts.size > 1) {

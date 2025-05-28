@@ -15,6 +15,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.os.Build
+import kotlin.math.max
 
 /**
  * Service to check for missed calls and send SMS automatically
@@ -54,6 +55,13 @@ class CallLogCheckService : Service() {
             Log.d(TAG, "Auto SMS is disabled, stopping service")
             stopSelf()
             return START_NOT_STICKY
+        }
+        
+        // Set last check time to current time on service start to avoid processing old missed calls
+        // Only do this if last check time isn't already set (first run)
+        if (sharedPrefs.getLong(LAST_CHECK_TIME_KEY, 0L) == 0L) {
+            sharedPrefs.edit().putLong(LAST_CHECK_TIME_KEY, System.currentTimeMillis()).apply()
+            Log.d(TAG, "Initialized last check time to current time to avoid processing old calls")
         }
         
         // Start periodic call log checking
@@ -123,8 +131,10 @@ class CallLogCheckService : Service() {
      * Schedule regular call log checks
      */
     private fun scheduleCallLogCheck() {
-        // First check immediately
-        checkCallLog()
+        // First check after a delay to avoid processing at startup
+        handler.postDelayed({
+            checkCallLog()
+        }, 10000)  // 10 second delay before first check
         
         // Then schedule periodic checks
         handler.postDelayed(object : Runnable {
@@ -151,6 +161,19 @@ class CallLogCheckService : Service() {
             val lastCheckTime = sharedPrefs.getLong(LAST_CHECK_TIME_KEY, 0L)
             val currentTime = System.currentTimeMillis()
             
+            // Safety check: if this is the first check, don't process old calls
+            if (lastCheckTime == 0L) {
+                Log.d(TAG, "First call log check, setting initial timestamp and skipping processing")
+                sharedPrefs.edit().putLong(LAST_CHECK_TIME_KEY, currentTime).apply()
+                return
+            }
+            
+            // Only check for very recent calls (last 5 minutes max)
+            val fiveMinutesAgo = currentTime - (5 * 60 * 1000)
+            val effectiveLastCheckTime = max(lastCheckTime, fiveMinutesAgo)
+            
+            Log.d(TAG, "Checking for missed calls since $effectiveLastCheckTime (last check time was $lastCheckTime)")
+            
             // Query call log for missed calls since last check
             val projection = arrayOf(
                 CallLog.Calls.NUMBER,
@@ -161,7 +184,7 @@ class CallLogCheckService : Service() {
             val selection = "${CallLog.Calls.TYPE} = ? AND ${CallLog.Calls.DATE} > ?"
             val selectionArgs = arrayOf(
                 CallLog.Calls.MISSED_TYPE.toString(),
-                lastCheckTime.toString()
+                effectiveLastCheckTime.toString()
             )
             
             val sortOrder = "${CallLog.Calls.DATE} DESC"
@@ -176,6 +199,9 @@ class CallLogCheckService : Service() {
                 val numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER)
                 val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
                 
+                val missedCallsCount = cursor.count
+                Log.d(TAG, "Found $missedCallsCount missed calls since last check")
+                
                 while (cursor.moveToNext()) {
                     val number = cursor.getString(numberIndex)
                     val date = cursor.getLong(dateIndex)
@@ -184,6 +210,8 @@ class CallLogCheckService : Service() {
                         Log.d(TAG, "Found unhandled missed call from $number at $date")
                         sendSmsForMissedCall(number)
                         markCallAsHandled(number, date)
+                    } else {
+                        Log.d(TAG, "Call from $number at $date already handled, skipping")
                     }
                 }
             }
