@@ -5,11 +5,13 @@ import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.uimanager.ViewManager
 import java.util.ArrayList
+import android.util.Log
 
 class CallSmsPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
         val modules = ArrayList<NativeModule>()
         modules.add(CallSmsModule(reactContext))
+        modules.add(AutoReplyModule(reactContext))
         return modules
     }
 

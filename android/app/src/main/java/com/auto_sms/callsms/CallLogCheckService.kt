@@ -13,6 +13,7 @@ import android.content.SharedPreferences
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.os.Build
 
 /**
@@ -30,9 +31,11 @@ class CallLogCheckService : Service() {
     private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
     private val AI_SMS_ENABLED_KEY = "@AutoSMS:AIEnabled"
+    private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
     private val INITIAL_SMS_MESSAGE_KEY = "@AutoSMS:InitialMessage"
     private val SMS_HISTORY_STORAGE_KEY = "@AutoSMS:SmsHistory"
     private val LAST_CHECK_TIME_KEY = "last_call_log_check_time"
+    private val MISSED_CALL_NUMBERS_KEY = "missedCallNumbers"
     
     // SharedPreferences to store state
     private lateinit var sharedPrefs: SharedPreferences
@@ -229,17 +232,37 @@ class CallLogCheckService : Service() {
             
             val smsManager = SmsManager.getDefault()
             
+            // Add FLAG_IMMUTABLE for Android 12+ compatibility
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            
+            // Prepare PendingIntent for SMS
+            val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
+            val sentPI = PendingIntent.getBroadcast(this, 0, sentIntent, pendingIntentFlags)
+            
             // Split message if it's too long
             val parts = smsManager.divideMessage(smsMessage)
             
             // Send SMS
             if (parts.size > 1) {
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                // Create PendingIntent array for multipart SMS
+                val sentIntents = ArrayList<PendingIntent>().apply {
+                    repeat(parts.size) { i ->
+                        add(PendingIntent.getBroadcast(this@CallLogCheckService, i, sentIntent, pendingIntentFlags))
+                    }
+                }
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, null, null)
+                smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
             }
             
             Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
+            
+            // Store the number for potential auto-reply
+            storeMissedCallNumber(phoneNumber)
             
             // Save to history
             saveSmsToHistory(phoneNumber, smsMessage, true)
@@ -247,6 +270,24 @@ class CallLogCheckService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)
             saveSmsToHistory(phoneNumber, DEFAULT_MESSAGE, false, e.message)
+        }
+    }
+    
+    /**
+     * Store phone number that we sent a missed call SMS to for later auto-reply
+     */
+    private fun storeMissedCallNumber(phoneNumber: String) {
+        try {
+            val missedCallNumbers = sharedPrefs.getStringSet(MISSED_CALL_NUMBERS_KEY, HashSet()) ?: HashSet()
+            
+            // Add timestamp to track when the missed call happened
+            val newMissedCallNumbers = HashSet(missedCallNumbers)
+            newMissedCallNumbers.add("$phoneNumber:${System.currentTimeMillis()}")
+            
+            sharedPrefs.edit().putStringSet(MISSED_CALL_NUMBERS_KEY, newMissedCallNumbers).apply()
+            Log.d(TAG, "Stored missed call number for auto-reply: $phoneNumber")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error storing missed call number: ${e.message}", e)
         }
     }
     

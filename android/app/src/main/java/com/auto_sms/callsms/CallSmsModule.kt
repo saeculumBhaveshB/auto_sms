@@ -306,11 +306,24 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             val parts = smsManager.divideMessage(smsMessage)
             
             val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
-            val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+            
+            // Add FLAG_IMMUTABLE for Android 12+ compatibility
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
             
             // Send SMS
             if (parts.size > 1) {
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                // Create PendingIntent array for multipart SMS
+                val sentIntents = ArrayList<PendingIntent>().apply {
+                    repeat(parts.size) { i ->
+                        add(PendingIntent.getBroadcast(reactApplicationContext, i, sentIntent, pendingIntentFlags))
+                    }
+                }
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
             } else {
                 smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
             }
@@ -355,11 +368,28 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             // Split message if it's too long
             val parts = smsManager.divideMessage(smsMessage)
             
+            // Add FLAG_IMMUTABLE for Android 12+ compatibility
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            
+            // Prepare PendingIntent for SMS
+            val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
+            val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
+            
             // Send SMS
             if (parts.size > 1) {
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                // Create PendingIntent array for multipart SMS
+                val sentIntents = ArrayList<PendingIntent>().apply {
+                    repeat(parts.size) { i ->
+                        add(PendingIntent.getBroadcast(reactApplicationContext, i, sentIntent, pendingIntentFlags))
+                    }
+                }
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, null, null)
+                smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
             }
             
             // Create data for event
