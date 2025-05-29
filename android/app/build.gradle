@@ -144,6 +144,9 @@ dependencies {
     implementation("androidx.core:core:1.12.0")
     implementation("androidx.core:core-ktx:1.12.0")
     
+    // iText PDF library for PDF text extraction
+    implementation("com.itextpdf:itextpdf:5.5.13.3")
+    
     // Apache POI for document parsing
     implementation("org.apache.poi:poi:5.2.3")
     implementation("org.apache.poi:poi-ooxml:5.2.3")

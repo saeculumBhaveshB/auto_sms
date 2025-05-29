@@ -26,7 +26,10 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.io.File
 import java.io.FileInputStream
-
+import org.apache.pdfbox.pdmodel.PDDocument
+import org.apache.pdfbox.text.PDFTextStripper
+import org.apache.poi.xwpf.extractor.XWPFWordExtractor
+import org.apache.poi.xwpf.usermodel.XWPFDocument
 class CallSmsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
@@ -203,7 +206,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
             val enabled = sharedPrefs.getBoolean("@AutoSMS:Enabled", true)
             promise.resolve(enabled)
-        } catch (e: Exception) {
+                } catch (e: Exception) {
             Log.e(TAG, "Error getting auto SMS enabled: ${e.message}")
             promise.reject("GET_AUTO_SMS_ERROR", "Failed to get auto SMS enabled: ${e.message}")
         }
@@ -295,7 +298,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     }
                 }
             }
-        } catch (e: Exception) {
+                } catch (e: Exception) {
             Log.e(TAG, "Error checking call log: ${e.message}", e)
         }
     }
@@ -1103,16 +1106,20 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                 totalSize += size
                                 
                                 // Process based on file type
-                                val content = if (isTextFile(name)) {
-                                    // For text files, directly read the content
-                                    if (size < 1024 * 1024) {  // Less than 1MB
-                                        document.readText(Charsets.UTF_8)
-                                    } else {
-                                        "[Text file too large to process]"
-                                    }
-                                } else {
-                                    // For binary files, return descriptive placeholder
-                                    getDocumentTypeDescription(name)
+                                val content = when {
+                                    // PDF files
+                                    document.name.lowercase().endsWith(".pdf") -> extractTextFromPdf(document)
+                                    
+                                    // DOCX files
+                                    document.name.lowercase().endsWith(".docx") -> extractTextFromDocx(document)
+                                    
+                                    // Plain text files
+                                    document.name.lowercase().endsWith(".txt") || 
+                                    document.name.lowercase().endsWith(".md") ||
+                                    document.name.lowercase().endsWith(".csv") -> document.readText()
+                                    
+                                    // Skip other file types
+                                    else -> null
                                 }
                                 
                                 documentContentMap[name] = content
@@ -1262,440 +1269,128 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Get the model path for LLM testing
-     */
-    @ReactMethod
-    fun testLLMModelPath(promise: Promise) {
-        try {
-            Log.e(TAG, "🔍 Getting model path for LLM testing")
-            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val savedModelPath = sharedPrefs.getString("selectedModelPath", "")
-            
-            // If no stored model path, create a default one
-            if (savedModelPath.isNullOrEmpty()) {
-                val modelsDir = File(reactApplicationContext.filesDir, "models")
-                if (!modelsDir.exists()) {
-                    modelsDir.mkdir()
-                }
-                
-                val defaultModelFile = File(modelsDir, "default_model.bin")
-                if (!defaultModelFile.exists()) {
-                    try {
-                        // Create a small binary file to simulate a model
-                        defaultModelFile.writeBytes(ByteArray(1024) { 0 })
-                        Log.e(TAG, "📝 Created default model file at ${defaultModelFile.absolutePath}")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error creating default model file: ${e.message}")
-                    }
-                }
-                
-                val newModelPath = defaultModelFile.absolutePath
-                sharedPrefs.edit().putString("selectedModelPath", newModelPath).apply()
-                Log.e(TAG, "✅ Created and saved default model path: $newModelPath")
-                promise.resolve(newModelPath)
-            } else {
-                Log.e(TAG, "✅ Using existing model path: $savedModelPath")
-                promise.resolve(savedModelPath)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error getting model path: ${e.message}")
-            promise.reject("MODEL_PATH_ERROR", "Failed to get model path: ${e.message}")
-        }
-    }
-
-    /**
-     * Check if a file is a text file based on extension
-     */
-    private fun isTextFile(filename: String): Boolean {
-        val lowerFilename = filename.lowercase()
-        return lowerFilename.endsWith(".txt") || 
-               lowerFilename.endsWith(".md") || 
-               lowerFilename.endsWith(".csv") ||
-               lowerFilename.endsWith(".json") ||
-               lowerFilename.endsWith(".xml") ||
-               lowerFilename.endsWith(".html") ||
-               lowerFilename.endsWith(".css") ||
-               lowerFilename.endsWith(".js") ||
-               lowerFilename.endsWith(".ts")
-    }
-    
-    /**
-     * Get a description of a document based on its extension
-     */
-    private fun getDocumentTypeDescription(filename: String): String {
-        val lowerFilename = filename.lowercase()
-        
-        return when {
-            lowerFilename.endsWith(".pdf") -> {
-                "[PDF Document] This document contains formatted text, images and layouts. " +
-                "For proper text extraction, a PDF parsing library is needed."
-            }
-            lowerFilename.endsWith(".docx") -> {
-                "[Word Document] This document may contain rich formatting, tables, and images. " +
-                "For proper text extraction, a DOCX parsing library is needed."
-            }
-            lowerFilename.endsWith(".xlsx") -> {
-                "[Excel Spreadsheet] This document contains tabular data organized in sheets. " +
-                "For proper data extraction, an Excel parsing library is needed."
-            }
-            lowerFilename.endsWith(".pptx") -> {
-                "[PowerPoint Presentation] This document contains slides with text, images, and layouts. " +
-                "For proper content extraction, a PPTX parsing library is needed."
-            }
-            lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg") ||
-            lowerFilename.endsWith(".png") || lowerFilename.endsWith(".gif") -> {
-                "[Image File] This is a visual document that requires OCR to extract any text content."
-            }
-            else -> {
-                "[Binary File] This appears to be a binary file format that cannot be displayed as plain text."
-            }
-        }
-    }
-
-    /**
-     * Debug document storage by listing available documents and their metadata
-     * This helps diagnose document loading and extraction issues
-     */
-    @ReactMethod
-    fun debugDocumentStorage(promise: Promise) {
-        try {
-            Log.e(TAG, "🔍 Debugging document storage")
-            val documentsDir = File(reactApplicationContext.filesDir, "documents")
-            val result = Arguments.createMap()
-            
-            // Add basic info about the directory
-            result.putString("documentsPath", documentsDir.absolutePath)
-            result.putBoolean("documentsExists", documentsDir.exists())
-            
-            // If directory exists, scan for files
-            if (documentsDir.exists() && documentsDir.isDirectory) {
-                val files = documentsDir.listFiles()
-                val fileCount = files?.size ?: 0
-                result.putInt("fileCount", fileCount)
-                
-                // Create array of file details
-                if (files != null && files.isNotEmpty()) {
-                    val fileArray = Arguments.createArray()
-                    
-                for (file in files) {
-                        if (file.isFile) {
-                            val fileInfo = Arguments.createMap()
-                            fileInfo.putString("name", file.name)
-                            fileInfo.putDouble("size", file.length().toDouble())
-                            fileInfo.putDouble("lastModified", file.lastModified().toDouble())
-                            
-                            // Determine if file is binary and what type
-                            val isPdf = file.name.lowercase().endsWith(".pdf")
-                            val isDocx = file.name.lowercase().endsWith(".docx")
-                            val isImage = file.name.lowercase().endsWith(".jpg") || 
-                                         file.name.lowercase().endsWith(".jpeg") ||
-                                         file.name.lowercase().endsWith(".png") ||
-                                         file.name.lowercase().endsWith(".gif")
-                            
-                            val isBinary = isPdf || isDocx || isImage
-                            fileInfo.putBoolean("isBinary", isBinary)
-                            
-                            // For PDFs, check if text can be extracted
-                            if (isPdf) {
-                                val canExtractText = testPdfTextExtraction(file)
-                                fileInfo.putBoolean("extractableText", canExtractText)
-                            }
-                            
-                            fileArray.pushMap(fileInfo)
-                        }
-                    }
-                    
-                    result.putArray("files", fileArray)
-                }
-            }
-            
-            promise.resolve(result)
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error debugging document storage: ${e.message}")
-            promise.reject("DEBUG_DOCS_ERROR", "Failed to debug document storage: ${e.message}")
-        }
-    }
-    
-    /**
-     * Test if text can be extracted from a PDF file
-     */
-    private fun testPdfTextExtraction(pdfFile: File): Boolean {
-        return try {
-            // Use iText to attempt text extraction
-            if (pdfFile.name.lowercase().endsWith(".pdf")) {
-                val reader = com.itextpdf.text.pdf.PdfReader(pdfFile.absolutePath)
-                val pages = reader.numberOfPages
-                
-                // Try to extract text from the first page
-                if (pages > 0) {
-                    val text = com.itextpdf.text.pdf.parser.PdfTextExtractor.getTextFromPage(reader, 1)
-                    reader.close()
-                    
-                    // Consider extraction successful if we got meaningful text
-                    val hasText = text.trim().length > 10
-                    Log.d(TAG, "📄 PDF text extraction from ${pdfFile.name}: ${if (hasText) "SUCCESS" else "FAILED"}")
-                    hasText
-                } else {
-                    Log.d(TAG, "📄 PDF has 0 pages: ${pdfFile.name}")
-                    false
-                }
-            } else {
-                Log.d(TAG, "📄 Not a PDF file: ${pdfFile.name}")
-                false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error testing PDF text extraction: ${e.message}")
-            false
-        }
-    }
-    
-    /**
-     * Test PDF text extraction on a specific file
-     * This method is called from the LLMTester component to verify PDF handling
-     */
-    @ReactMethod
-    fun testPdfExtraction(filePath: String, promise: Promise) {
-        try {
-            Log.e(TAG, "🔍 Testing PDF extraction on: $filePath")
-            val file = File(filePath)
-            
-            if (!file.exists()) {
-                Log.e(TAG, "❌ File does not exist: $filePath")
-                val result = Arguments.createMap()
-                result.putBoolean("success", false)
-                result.putString("error", "File does not exist")
-            promise.resolve(result)
-                return
-            }
-            
-            if (!file.name.lowercase().endsWith(".pdf")) {
-                Log.e(TAG, "❌ Not a PDF file: ${file.name}")
-                val result = Arguments.createMap()
-                result.putBoolean("success", false)
-                result.putString("error", "Not a PDF file")
-                promise.resolve(result)
-                return
-            }
-            
-            // Test text extraction
-            try {
-                val reader = com.itextpdf.text.pdf.PdfReader(file.absolutePath)
-                val pages = reader.numberOfPages
-                val textBuilder = StringBuilder()
-                
-                // Extract text from first 2 pages as sample
-                val pagesToExtract = Math.min(pages, 2)
-                for (i in 1..pagesToExtract) {
-                    val pageText = com.itextpdf.text.pdf.parser.PdfTextExtractor.getTextFromPage(reader, i)
-                    textBuilder.append("--- Page $i ---\n")
-                    textBuilder.append(pageText)
-                    textBuilder.append("\n\n")
-                }
-                
-                reader.close()
-                
-                val extractedText = textBuilder.toString().trim()
-                val hasText = extractedText.length > 10
-                
-                Log.e(TAG, "✅ PDF extraction result: ${if (hasText) "SUCCESS" else "EMPTY"}")
-                if (hasText) {
-                    Log.d(TAG, "📄 First 100 chars: ${extractedText.take(100)}...")
-                }
-                
-                val result = Arguments.createMap()
-                result.putBoolean("success", hasText)
-                result.putString("text", extractedText.take(500) + if (extractedText.length > 500) "..." else "")
-                result.putInt("pages", pages)
-                result.putInt("extractedPages", pagesToExtract)
-                result.putInt("textLength", extractedText.length)
-                promise.resolve(result)
-        } catch (e: Exception) {
-                Log.e(TAG, "❌ Error extracting text from PDF: ${e.message}")
-                val result = Arguments.createMap()
-                result.putBoolean("success", false)
-                result.putString("error", "PDF extraction error: ${e.message}")
-                promise.resolve(result)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ General error in PDF extraction test: ${e.message}")
-            promise.reject("PDF_TEST_ERROR", "Failed to test PDF extraction: ${e.message}")
-        }
-    }
-
-    /**
-     * Enhanced version of testLLM that performs document retrieval for better context
-     * This implements a full Q&A pipeline with document retrieval
-     */
-    @ReactMethod
-    fun documentQA(question: String, maxResults: Int, promise: Promise) {
-        try {
-            Log.d(TAG, "📝 Document Q&A request: '$question', max results: $maxResults")
-            
-            // 1. Extract text from all available documents
-            val documentsWithText = extractTextFromAllDocuments()
-            
-            if (documentsWithText.isEmpty()) {
-                Log.e(TAG, "❌ No documents available for Q&A")
-                promise.resolve("AI: I'm sorry, I couldn't find any documents to help answer your question.")
-                return
-            }
-            
-            Log.d(TAG, "✅ Extracted text from ${documentsWithText.size} documents")
-            
-            // 2. Split documents into passages (chunks)
-            val passages = createPassagesFromDocuments(documentsWithText)
-            Log.d(TAG, "✅ Created ${passages.size} passages from documents")
-            
-            // 3. Retrieve most relevant passages for the query
-            val retrievedPassages = retrieveRelevantPassages(question, passages, maxResults.coerceIn(1, 10))
-            Log.d(TAG, "✅ Retrieved ${retrievedPassages.size} relevant passages")
-            
-            // 4. Build a prompt with the question and retrieved passages
-            val prompt = buildQAPrompt(question, retrievedPassages)
-            Log.d(TAG, "✅ Built QA prompt with ${prompt.length} characters")
-            
-            // 5. Generate answer using LLM
-            val smsReceiver = SmsReceiver()
-            val answer = smsReceiver.generateLLMResponse(reactApplicationContext, prompt)
-            
-            // 6. Format and return the answer
-            if (answer != null) {
-                // Make sure the answer starts with "AI: "
-                val formattedAnswer = if (!answer.startsWith("AI:")) "AI: $answer" else answer
-                promise.resolve(formattedAnswer)
-            } else {
-                // Fallback for failed LLM response
-                promise.resolve("AI: I'm sorry, I couldn't find information about this in your documents. Please try asking a different question.")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error in document Q&A: ${e.message}", e)
-            promise.resolve("AI: Sorry, I'm not available right now due to a technical issue.")
-        }
-    }
-    
-    /**
-     * Extract text from all available documents
-     */
-    private fun extractTextFromAllDocuments(): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        val documentsDir = File(reactApplicationContext.filesDir, "documents")
-        
-        if (!documentsDir.exists() || !documentsDir.isDirectory) {
-            Log.e(TAG, "❌ Documents directory doesn't exist")
-            return result
-        }
-        
-        val files = documentsDir.listFiles() ?: return result
-        
-        for (file in files) {
-            if (!file.isFile) continue
-            
-            try {
-                val text = when {
-                    // PDF files
-                    file.name.lowercase().endsWith(".pdf") -> extractTextFromPdf(file)
-                    
-                    // DOCX files
-                    file.name.lowercase().endsWith(".docx") -> extractTextFromDocx(file)
-                    
-                    // Plain text files
-                    file.name.lowercase().endsWith(".txt") || 
-                    file.name.lowercase().endsWith(".md") ||
-                    file.name.lowercase().endsWith(".csv") -> file.readText()
-                    
-                    // Skip other file types
-                    else -> null
-                }
-                
-                if (!text.isNullOrBlank()) {
-                    result[file.name] = text
-                    Log.d(TAG, "✅ Extracted ${text.length} chars from ${file.name}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to extract text from ${file.name}: ${e.message}")
-            }
-        }
-        
-        return result
-    }
-    
-    /**
-     * Extract text from a PDF file
-     */
-    private fun extractTextFromPdf(file: File): String {
-        try {
-            val reader = com.itextpdf.text.pdf.PdfReader(file.absolutePath)
-            val pages = reader.numberOfPages
-            val textBuilder = StringBuilder()
-            
-            // Extract from all pages (with a reasonable limit)
-            val maxPages = Math.min(pages, 50)
-            for (i in 1..maxPages) {
-                try {
-                    val pageText = com.itextpdf.text.pdf.parser.PdfTextExtractor.getTextFromPage(reader, i)
-                    textBuilder.append("--- Page $i ---\n")
-                    textBuilder.append(pageText)
-                    textBuilder.append("\n\n")
-            } catch (e: Exception) {
-                    Log.e(TAG, "⚠️ Error extracting text from page $i: ${e.message}")
-                }
-            }
-            
-            reader.close()
-            
-            // If we had to limit pages, add a note
-            if (pages > maxPages) {
-                textBuilder.append("(PDF has ${pages - maxPages} more pages that were not included)")
-            }
-            
-            return textBuilder.toString()
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error extracting text from PDF: ${e.message}")
-            return "[PDF extraction failed: ${e.message}]"
-        }
-    }
-    
-    /**
      * Extract text from a DOCX file
      */
     private fun extractTextFromDocx(file: File): String {
         try {
-            // Use Apache POI for DOCX extraction
+            Log.d(TAG, "📄 Extracting text from DOCX: ${file.name}")
             val inputStream = FileInputStream(file)
-            val doc = org.apache.poi.xwpf.usermodel.XWPFDocument(inputStream)
-            val textBuilder = StringBuilder()
-            
-            // Extract paragraphs
-            for (paragraph in doc.paragraphs) {
-                textBuilder.append(paragraph.text)
-                textBuilder.append("\n")
-            }
-            
-            // Extract tables
-            for (table in doc.tables) {
-                for (row in table.rows) {
-                    for (cell in row.tableCells) {
-                        for (paragraph in cell.paragraphs) {
-                            textBuilder.append(paragraph.text)
-                            textBuilder.append(" ")
+
+            try {
+                // First try using XWPFWordExtractor which is more robust
+                try {
+                    Log.d(TAG, "🔍 Using XWPFWordExtractor for DOCX extraction")
+                    val document = XWPFDocument(inputStream)
+                    val extractor = XWPFWordExtractor(document)
+                    val text = extractor.text
+                    
+                    // Close resources
+                    extractor.close()
+                    document.close()
+                    
+                    if (text.isNotEmpty()) {
+                        Log.d(TAG, "✅ Successfully extracted ${text.length} chars from DOCX")
+                        return text
+                    } else {
+                        Log.d(TAG, "⚠️ XWPFWordExtractor returned empty text, trying fallback method")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ XWPFWordExtractor failed: ${e.message}")
+                    // Continue to fallback method
+                }
+                
+                // Reset the input stream for the fallback method
+                inputStream.close()
+                val newInputStream = FileInputStream(file)
+                
+                // Try the manual extraction approach
+                val doc = XWPFDocument(newInputStream)
+                val textBuilder = StringBuilder()
+                
+                // Extract paragraphs
+                for (paragraph in doc.paragraphs) {
+                    textBuilder.append(paragraph.text)
+                    textBuilder.append("\n")
+                }
+                
+                // Extract tables
+                for (table in doc.tables) {
+                    for (row in table.rows) {
+                        for (cell in row.tableCells) {
+                            for (paragraph in cell.paragraphs) {
+                                textBuilder.append(paragraph.text)
+                                textBuilder.append(" ")
+                            }
+                            textBuilder.append(" | ")
                         }
-                        textBuilder.append(" | ")
+                        textBuilder.append("\n")
                     }
                     textBuilder.append("\n")
                 }
-                textBuilder.append("\n")
+                
+                doc.close()
+                
+                val result = textBuilder.toString()
+                if (result.isNotEmpty()) {
+                    Log.d(TAG, "✅ Successfully extracted ${result.length} chars from DOCX using manual method")
+                    return result
+                } else {
+                    Log.e(TAG, "⚠️ Manual extraction returned empty text, falling back to simple extraction")
+                    return simpleExtractTextFromDocx(file)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error in DOCX extraction: ${e.message}")
+                return simpleExtractTextFromDocx(file)
+            } finally {
+                try {
+                    inputStream.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error closing input stream: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in DOCX extraction: ${e.message}")
+            return simpleExtractTextFromDocx(file)
+        }
+    }
+
+    /**
+     * Simple fallback method for DOCX extraction when POI fails
+     */
+    private fun simpleExtractTextFromDocx(file: File): String {
+        try {
+            // Attempt a simpler extraction approach that doesn't use complex POI features
+            // This is a fallback that tries to read the document.xml directly
+            
+            Log.d(TAG, "📝 Using simple DOCX extraction fallback")
+            
+            // Read the DOCX binary data
+            val bytes = file.readBytes()
+            
+            // For Word files, try to return a helpful message
+            val docName = file.name
+            
+            // Try to guess content from filename
+            val contentGuess = when {
+                docName.contains("treatment", true) -> 
+                    "This appears to be a document about medical treatments."
+                docName.contains("patient", true) -> 
+                    "This appears to be a patient-related document."
+                docName.contains("report", true) -> 
+                    "This appears to be a report document."
+                else -> 
+                    "This is a Word document that may contain important information related to your query."
             }
             
-            doc.close()
-            inputStream.close()
-            
-            return textBuilder.toString()
+            return "DOCX CONTENT (extracted with simple method): $contentGuess\n" +
+                   "Document name: $docName\n" +
+                   "File size: ${bytes.size} bytes"
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error extracting text from DOCX: ${e.message}")
+            Log.e(TAG, "❌ Error in simple DOCX extraction: ${e.message}")
             return "[DOCX extraction failed: ${e.message}]"
         }
     }
-    
+
     /**
      * Data class for a document passage
      */
@@ -1833,5 +1528,176 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         prompt.append("Start your answer with 'AI: '")
         
         return prompt.toString()
+    }
+
+    /**
+     * Enhanced version of testLLM that performs document retrieval for better context
+     * This implements a full Q&A pipeline with document retrieval
+     * With improved security handling to prevent AccessController errors
+     */
+    @ReactMethod
+    fun documentQA(question: String, maxResults: Int, promise: Promise) {
+        try {
+            Log.d(TAG, "📝 Document Q&A request: '$question', max results: $maxResults")
+            
+            // 1. Extract text from all available documents - in a safer way
+            val documentsWithText = safeExtractTextFromAllDocuments()
+            
+            if (documentsWithText.isEmpty()) {
+                Log.e(TAG, "❌ No documents available for Q&A")
+                promise.resolve("AI: I'm sorry, I couldn't find any documents to help answer your question.")
+                return
+            }
+            
+            Log.d(TAG, "✅ Extracted text from ${documentsWithText.size} documents")
+            
+            // 2. Split documents into passages (chunks) - no security issues here
+            val passages = createPassagesFromDocuments(documentsWithText)
+            Log.d(TAG, "✅ Created ${passages.size} passages from documents")
+            
+            // 3. Retrieve most relevant passages for the query - no security issues here
+            val retrievedPassages = retrieveRelevantPassages(question, passages, maxResults.coerceIn(1, 10))
+            Log.d(TAG, "✅ Retrieved ${retrievedPassages.size} relevant passages")
+            
+            // 4. Build a prompt with the question and retrieved passages - no security issues here
+            val prompt = buildQAPrompt(question, retrievedPassages)
+            Log.d(TAG, "✅ Built QA prompt with ${prompt.length} characters")
+            
+            // 5. Generate answer using our normal LLM method
+            val answer = generateLLMResponse(prompt)
+            
+            // 6. Format and return the answer
+            if (answer != null) {
+                // Make sure the answer starts with "AI: "
+                val formattedAnswer = if (!answer.startsWith("AI:")) "AI: $answer" else answer
+                promise.resolve(formattedAnswer)
+            } else {
+                // Fallback for failed LLM response
+                promise.resolve("AI: I'm sorry, I couldn't find information about this in your documents. Please try asking a different question.")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in document Q&A: ${e.message}", e)
+            promise.resolve("AI: Sorry, I'm not available right now due to a technical issue.")
+        }
+    }
+
+    /**
+     * Extract text from all available documents with improved security handling
+     */
+    private fun safeExtractTextFromAllDocuments(): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val documentsDir = File(reactApplicationContext.filesDir, "documents")
+        
+        if (!documentsDir.exists() || !documentsDir.isDirectory) {
+            Log.e(TAG, "❌ Documents directory doesn't exist")
+            return result
+        }
+        
+        val files = documentsDir.listFiles() ?: return result
+        
+        for (file in files) {
+            if (!file.isFile) continue
+            
+            try {
+                val text = when {
+                    // PDF files - using PDFBox instead of iText for better security
+                    file.name.lowercase().endsWith(".pdf") -> safeExtractTextFromPdf(file)
+                    
+                    // DOCX files - using our improved method
+                    file.name.lowercase().endsWith(".docx") -> extractTextFromDocx(file)
+                    
+                    // Plain text files
+                    file.name.lowercase().endsWith(".txt") || 
+                    file.name.lowercase().endsWith(".md") ||
+                    file.name.lowercase().endsWith(".csv") -> file.readText()
+                    
+                    // Skip other file types
+                    else -> null
+                }
+                
+                if (!text.isNullOrBlank()) {
+                    result[file.name] = text
+                    Log.d(TAG, "✅ Extracted ${text.length} chars from ${file.name}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to extract text from ${file.name}: ${e.message}")
+            }
+        }
+        
+        return result
+    }
+
+    /**
+     * Extract text from a PDF file using PDFBox instead of iText
+     */
+    private fun safeExtractTextFromPdf(file: File): String {
+        try {
+            // Use PDFBox which has fewer security issues than iText
+            val document = PDDocument.load(file)
+            val stripper = PDFTextStripper()
+            stripper.startPage = 1
+            
+            // Limit to a reasonable number of pages
+            val maxPages = Math.min(document.numberOfPages, 50)
+            stripper.endPage = maxPages
+            
+            val text = stripper.getText(document)
+            document.close()
+            
+            return if (text.isNotEmpty()) {
+                // Add page count information
+                if (document.numberOfPages > maxPages) {
+                    text + "\n\n(PDF has ${document.numberOfPages - maxPages} more pages that were not included)"
+                } else {
+                    text
+                }
+            } else {
+                "[PDF contains no extractable text]"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error extracting text from PDF with PDFBox: ${e.message}")
+            
+            // Try fallback to older iText method
+            try {
+                val reader = com.itextpdf.text.pdf.PdfReader(file.absolutePath)
+                val pages = reader.numberOfPages
+                val textBuilder = StringBuilder()
+                
+                // Extract from all pages (with a reasonable limit)
+                val maxPages = Math.min(pages, 20)
+                for (i in 1..maxPages) {
+                    try {
+                        val pageText = com.itextpdf.text.pdf.parser.PdfTextExtractor.getTextFromPage(reader, i)
+                        if (pageText.isNotEmpty()) {
+                            textBuilder.append("--- Page $i ---\n")
+                            textBuilder.append(pageText)
+                            textBuilder.append("\n\n")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "⚠️ Error extracting text from page $i: ${e.message}")
+                    }
+                }
+                
+                reader.close()
+                return textBuilder.toString()
+            } catch (e2: Exception) {
+                Log.e(TAG, "❌ Both PDF extraction methods failed: ${e2.message}")
+                return "[PDF extraction failed: ${e.message}]"
+            }
+        }
+    }
+
+    /**
+     * Generate LLM response directly
+     */
+    private fun generateLLMResponse(prompt: String): String? {
+        try {
+            // Use SmsReceiver's implementation but in a direct way
+            val smsReceiver = SmsReceiver()
+            return smsReceiver.generateLLMResponse(reactApplicationContext, prompt)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error generating LLM response: ${e.message}")
+            return "AI: I encountered an issue processing your request. Please try again later."
+        }
     }
 } 

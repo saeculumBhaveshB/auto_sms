@@ -321,39 +321,57 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     
     @ReactMethod
     fun listDocuments(promise: Promise) {
+        Log.d(TAG, "📂 LLM: Listing documents")
         try {
             val documentsDir = File(reactApplicationContext.filesDir, "documents")
-            Log.d(TAG, "📑 LLM DEBUG: Listing documents in directory: ${documentsDir.absolutePath}")
-            Log.d(TAG, "📂 LLM DEBUG: Documents directory exists: ${documentsDir.exists()}")
-            
             if (!documentsDir.exists()) {
-                documentsDir.mkdir()
-                Log.d(TAG, "📁 LLM DEBUG: Created documents directory as it didn't exist")
-                promise.resolve(Arguments.createArray())
-                return
+                documentsDir.mkdirs()
+                Log.d(TAG, "📁 LLM: Created documents directory at ${documentsDir.absolutePath}")
             }
             
-            val files = documentsDir.listFiles() ?: emptyArray()
-            Log.d(TAG, "🔢 LLM DEBUG: Found ${files.size} documents")
+            val documents = documentsDir.listFiles()
+            val documentArray = Arguments.createArray()
             
-            val documents = Arguments.createArray()
-            for (file in files) {
-                Log.d(TAG, "📄 LLM DEBUG: Document: ${file.name}, size: ${file.length()}")
-                val document = Arguments.createMap().apply {
-                    putString("name", file.name)
-                    putString("path", file.absolutePath)
-                    putDouble("size", file.length().toDouble())
-                    putDouble("lastModified", file.lastModified().toDouble())
+            if (documents != null) {
+                for (file in documents) {
+                    if (file.isFile) {
+                        val documentMap = Arguments.createMap()
+                        documentMap.putString("name", file.name)
+                        documentMap.putString("path", file.absolutePath)
+                        documentMap.putDouble("size", file.length().toDouble())
+                        documentMap.putDouble("lastModified", file.lastModified().toDouble())
+                        
+                        // Check if this is likely a binary file
+                        val isBinary = if (file.name.lowercase().endsWith(".pdf") || 
+                                       file.name.lowercase().endsWith(".docx") ||
+                                       file.name.lowercase().endsWith(".jpg") ||
+                                       file.name.lowercase().endsWith(".png")) {
+                            true
+                        } else {
+                            try {
+                                val sample = file.readText().take(500).toString()
+                                val nonPrintableCount = sample.count { char ->
+                                    char.toInt() < 32 && char.toInt() != 9 && char.toInt() != 10 && char.toInt() != 13
+                                }
+                                (nonPrintableCount.toFloat() / Math.min(500, sample.length)) > 0.15
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ LLM: Error reading file for binary check: ${e.message}")
+                                false
+                            }
+                        }
+                        
+                        documentMap.putBoolean("isBinary", isBinary)
+                        
+                        documentArray.pushMap(documentMap)
+                    }
                 }
-                documents.pushMap(document)
             }
             
-            promise.resolve(documents)
-            
+            Log.d(TAG, "📊 LLM: Found ${documentArray.size()} documents")
+            promise.resolve(documentArray)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ LLM ERROR: Error listing documents", e)
-            e.printStackTrace()
-            promise.reject("LIST_ERROR", "Failed to list documents: ${e.message}")
+            Log.e(TAG, "❌ LLM: Error listing documents: ${e.message}", e)
+            promise.reject("LIST_DOCUMENTS_ERROR", "Failed to list documents: ${e.message}")
         }
     }
     
@@ -417,6 +435,82 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
             Log.e(TAG, "❌ LLM ERROR: Error loading model synchronously", e)
             e.printStackTrace()
             return false
+        }
+    }
+
+    /**
+     * Create a sample document for testing purposes
+     */
+    @ReactMethod
+    fun createSampleDocument(promise: Promise) {
+        Log.d(TAG, "📄 LLM: Creating sample document for testing")
+        try {
+            val documentsDir = File(reactApplicationContext.filesDir, "documents")
+            if (!documentsDir.exists()) {
+                documentsDir.mkdirs()
+                Log.d(TAG, "📁 LLM: Created documents directory at ${documentsDir.absolutePath}")
+            }
+            
+            val sampleFile = File(documentsDir, "sample_document.txt")
+            
+            // Create sample document with test content
+            sampleFile.writeText(
+                """
+                # Sample Document for LLM Auto-Reply Testing
+                
+                ## Company Information
+                
+                Our company provides excellent customer service 24/7.
+                You can reach our support team at support@example.com.
+                
+                ## Product Information
+                
+                Our product is a mobile app that helps users with automatic SMS replies.
+                It uses a local LLM to generate intelligent responses based on documents.
+                
+                ## FAQ
+                
+                Q: When will my order arrive?
+                A: Orders typically arrive within 3-5 business days.
+                
+                Q: How do I contact support?
+                A: You can email support@example.com or call us at 555-123-4567.
+                
+                Q: What's your refund policy?
+                A: We offer full refunds within 30 days of purchase.
+                
+                Q: How does the auto-reply feature work?
+                A: When you miss a call, the app sends an automatic SMS. When they reply, our local LLM provides an intelligent response based on your uploaded documents.
+                
+                ## Contact Details
+                
+                Email: info@example.com
+                Phone: 555-987-6543
+                Address: 123 Main St, Anytown, USA
+                """.trimIndent()
+            )
+            
+            // Also create a PDF file for testing binary detection
+            val binaryFile = File(documentsDir, "sample.pdf")
+            try {
+                val pdfHeader = "%PDF-1.5\n%¥±ë\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n"
+                binaryFile.writeText(pdfHeader)
+                Log.d(TAG, "📄 LLM: Created sample PDF file for binary detection testing")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ LLM: Failed to create sample PDF file: ${e.message}")
+            }
+            
+            Log.d(TAG, "📝 LLM: Created sample document at ${sampleFile.absolutePath}, size: ${sampleFile.length()} bytes")
+            
+            val result = Arguments.createMap()
+            result.putString("path", sampleFile.absolutePath)
+            result.putDouble("size", sampleFile.length().toDouble())
+            result.putString("name", sampleFile.name)
+            
+            promise.resolve(result)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ LLM: Failed to create sample document: ${e.message}", e)
+            promise.reject("CREATE_SAMPLE_DOC_ERROR", "Failed to create sample document: ${e.message}")
         }
     }
 
