@@ -1067,4 +1067,32 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             promise.reject("SEND_TEST_SMS_ERROR", "Failed to send test SMS: ${e.message}")
         }
     }
+
+    /**
+     * Test the LLM by generating a response to a question
+     * This is used by the LLM testing UI in the app
+     */
+    @ReactMethod
+    fun testLLM(question: String, promise: Promise) {
+        try {
+            Log.e(TAG, "🧪 Testing LLM with question: $question")
+            
+            // Create an instance of SmsReceiver to use its generateLLMResponse method
+            val smsReceiver = SmsReceiver()
+            
+            // Generate response using the same method used for SMS replies
+            val response = smsReceiver.generateLLMResponse(reactApplicationContext, question)
+            
+            if (response != null) {
+                Log.e(TAG, "✅ LLM test successful, response: $response")
+                promise.resolve(response)
+            } else {
+                Log.e(TAG, "❌ LLM test failed, null response")
+                promise.reject("LLM_TEST_ERROR", "LLM test failed, null response")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error testing LLM: ${e.message}", e)
+            promise.reject("LLM_TEST_ERROR", "Error testing LLM: ${e.message}")
+        }
+    }
 } 

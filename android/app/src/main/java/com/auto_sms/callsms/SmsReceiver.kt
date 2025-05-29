@@ -368,7 +368,7 @@ class SmsReceiver : BroadcastReceiver() {
     /**
      * Generate a response using the local LLM with document context
      */
-    private fun generateLLMResponse(context: Context, question: String): String? {
+    fun generateLLMResponse(context: Context, question: String): String? {
         try {
             Log.e(TAG, "🧠🧠🧠 LLM - CRITICAL: generateLLMResponse called for question: $question")
             
