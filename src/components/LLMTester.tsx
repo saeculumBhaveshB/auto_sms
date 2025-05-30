@@ -40,6 +40,7 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
   const [showDebugInfo, setShowDebugInfo] = useState<boolean>(false);
   const [debugLog, setDebugLog] = useState<string>("");
   const [isDocQA, setIsDocQA] = useState<boolean>(false);
+  const [isInFallbackMode, setIsInFallbackMode] = useState<boolean>(false);
 
   // Load model status and documents on component mount
   useEffect(() => {
@@ -48,6 +49,18 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
         // Check if model is loaded
         const modelLoaded = await LocalLLMModule.isModelLoaded();
         setIsModelLoaded(modelLoaded);
+
+        // Check if we're in fallback mode (has no interpreter)
+        if (modelLoaded) {
+          try {
+            const hasRealModel =
+              (await LocalLLMModule.hasRealModel?.()) ?? false;
+            setIsInFallbackMode(!hasRealModel);
+            logDebug(`🔍 Real model available: ${hasRealModel ? "Yes" : "No"}`);
+          } catch {
+            setIsInFallbackMode(true);
+          }
+        }
 
         // Get available documents
         const docs = await LocalLLMModule.listDocuments();
@@ -558,8 +571,20 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>
           <Text style={styles.statusLabel}>Model:</Text>{" "}
-          <Text style={isModelLoaded ? styles.statusGood : styles.statusBad}>
-            {isModelLoaded ? "Loaded" : "Not Loaded"}
+          <Text
+            style={
+              isModelLoaded
+                ? isInFallbackMode
+                  ? styles.statusWarning
+                  : styles.statusGood
+                : styles.statusBad
+            }
+          >
+            {isModelLoaded
+              ? isInFallbackMode
+                ? "Fallback Mode"
+                : "Loaded"
+              : "Not Loaded"}
           </Text>
         </Text>
 
@@ -755,6 +780,10 @@ const styles = StyleSheet.create({
   },
   statusBad: {
     color: "#f44336",
+    fontWeight: "500",
+  },
+  statusWarning: {
+    color: "#ff9800",
     fontWeight: "500",
   },
   input: {

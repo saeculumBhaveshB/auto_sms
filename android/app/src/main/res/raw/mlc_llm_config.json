@@ -1,0 +1,33 @@
+{
+  "model_list": [
+    {
+      "model_id": "Llama-2-7B-chat-q4f16_1",
+      "model_path": "mlc_models/Llama-2-7B",
+      "model_lib": "model_lib.so",
+      "conv_template": "llama-2-chat",
+      "context_size": 2048,
+      "parameters": {
+        "temperature": 0.7,
+        "repetition_penalty": 1.0,
+        "top_p": 0.95,
+        "mean_gen_len": 128,
+        "max_gen_len": 512
+      }
+    },
+    {
+      "model_id": "Mistral-7B-v0.1-q4f16_1",
+      "model_path": "mlc_models/Mistral-7B",
+      "model_lib": "model_lib.so",
+      "conv_template": "mistral",
+      "context_size": 2048,
+      "parameters": {
+        "temperature": 0.7,
+        "repetition_penalty": 1.1,
+        "top_p": 0.8,
+        "mean_gen_len": 256,
+        "max_gen_len": 1024
+      }
+    }
+  ],
+  "default_model": "Llama-2-7B-chat-q4f16_1"
+}

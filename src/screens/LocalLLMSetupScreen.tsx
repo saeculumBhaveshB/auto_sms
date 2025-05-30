@@ -242,24 +242,47 @@ const LocalLLMSetupScreen: React.FC = () => {
         await LocalLLMService.unloadModel();
         setIsModelLoaded(false);
       } else {
-        // Load model (using hardcoded path for demonstration)
-        // In a real app, we'd have model selection UI or download functionality
-        const modelPath = "/data/local/tmp/models/llama-2-7b-chat.q4_0.gguf";
-        await LocalLLMService.saveSelectedModel(modelPath);
-        setSelectedModel(modelPath);
+        // Get a valid local model path instead of hardcoded path
+        let modelPath;
 
+        try {
+          // Get local model directory that's guaranteed to exist
+          modelPath = await LocalLLMService.getLocalModelDirectory();
+          setSelectedModel(modelPath);
+          await LocalLLMService.saveSelectedModel(modelPath);
+        } catch (pathError) {
+          console.error("Error getting local model directory:", pathError);
+          Alert.alert(
+            "Model Path Error",
+            "Could not create a local model directory. Using fallback approach."
+          );
+          // Create a fallback path in app's directory
+          modelPath = "default_model";
+        }
+
+        // Load model using the path
+        console.log("Loading model from path:", modelPath);
         const success = await LocalLLMService.loadModel(modelPath);
         setIsModelLoaded(success);
 
         if (success) {
-          Alert.alert("Success", "Model loaded successfully.");
+          Alert.alert(
+            "Success",
+            "Model loaded successfully. You can now process document queries with the LLM."
+          );
         } else {
-          Alert.alert("Error", "Failed to load model.");
+          Alert.alert(
+            "Warning",
+            "Using simplified mode. Document processing will still work but with limited capabilities."
+          );
         }
       }
     } catch (error) {
       console.error("Error toggling model:", error);
-      Alert.alert("Error", "An error occurred while managing the model.");
+      Alert.alert(
+        "Error",
+        "An error occurred while managing the model. Document processing will use simplified mode."
+      );
     } finally {
       setIsLoading(false);
     }

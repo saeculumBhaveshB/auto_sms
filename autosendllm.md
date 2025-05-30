@@ -1,73 +1,138 @@
-# Local LLM Auto-Reply Integration Guide
+# Implementation Document: React Native + Native Android Integration with MLC LLM
 
-This document outlines high-level steps for Cursor AI to implement a Local LLM–powered SMS auto-reply feature in a React Native + native Android application.
-It assumes existing LLM code is present; Cursor AI should review, refactor or replace as needed.
+## Objective
 
----
-
-## 1. Review and Prepare Existing LLM Module
-
-- Gather the current native LLM integration components in the project.
-- Identify how the model is being loaded, where inference is invoked, and how resources are managed.
-- Note any areas where document parsing or SMS hooks are entwined with the logic, marking them for refactoring or enhancement.
+Enable dynamic, on-device Q\&A based on user-uploaded DOCX/PDF files using MLC LLM. The system will extract relevant text, perform retrieval-augmented generation, and produce contextually accurate answers prefixed with "AI:"—with no static responses.
 
 ---
 
-## 2. Configure and Initialize the Local LLM Runtime
+## Architecture Overview
 
-- Choose the local inference engine (llama.cpp or MLC LLM) best suited for on-device performance.
-- Ensure the application is configured to include the necessary native libraries and model files.
-- On enabling auto-reply, initialize the LLM model in background, preparing it for subsequent inference requests.
+1. **React Native Layer**
 
----
+   - **UI Components**: File uploader, text input for questions, response display area.
+   - **Bridge Module**: JS-to-native interface to invoke document management, retrieval, LLM inference, and SMS services.
 
-## 3. Provide Document Access to the LLM
+2. **Native Android Layer**
 
-- Maintain uploaded documents in their original format within the app’s storage.
-- Enable the LLM runtime to access and parse these files at inference time, without upfront text conversion.
-- Implement a document registry that the LLM engine can query to locate and read files dynamically.
-
----
-
-## 4. Build the Inference Process
-
-- When a new SMS arrives (after a missed call), extract the text of the SMS message.
-- Pass the SMS text and references to the uploaded documents into the LLM inference pipeline.
-- Allow the LLM to read from the documents, interpret the content, and generate a coherent answer.
+   - **Document Manager**: Stores and provides access to uploaded DOCX/PDF files.
+   - **Text Extraction Module**: Parses documents on demand to extract raw text segments.
+   - **Retrieval Controller**: Scores and selects the most relevant passages per query.
+   - **MLC LLM Engine**: Loads quantized model, runs inference on provided context and user query.
+   - **SMS Handler** (optional): Listens for SMS queries and sends back LLM-generated replies.
 
 ---
 
-## 5. Integrate with SMS Receiver for Auto-Reply
+## Component Responsibilities
 
-- In the SMS listener logic, replace any static reply behavior with a call to the inference process.
-- Once the LLM returns its answer, format the response by prefixing it with “AI:”.
-- If the LLM cannot formulate a relevant answer, fallback to a generic message indicating inability to answer.
-- If the LLM initialization or document access fails due to lack of resources or offline state, send a predefined “not available” message.
+### 1. Document Manager
+
+- **Receive** multiple DOCX/PDF uploads from React Native.
+- **Securely store** files in app-specific storage.
+- **Expose** file URIs to downstream modules via the native bridge.
+
+### 2. Text Extraction Module
+
+- **Lazily parse** files using a native library (e.g., PdfBox-Android for PDFs, Apache POI for DOCX).
+- **Extract and cache** text segments (e.g., by paragraph or page) only when needed.
+
+### 3. Retrieval Controller
+
+- **Accept** user query and list of extracted text segments.
+- **Score** each segment by relevance (keyword frequency or lightweight embedding similarity).
+- **Select** top-N segments to form the inference context.
+
+### 4. MLC LLM Engine
+
+- **Include** MLC LLM native libraries and quantized model files in your Gradle configuration.
+- **Initialize** the model when auto-reply or Q\&A is enabled.
+- **Expose** a method `generateAnswer(question, context)` returning generated text.
+- **Run inference** on a background thread to avoid UI blocking.
+
+### 5. Integration Workflow
+
+1. **User uploads** DOCX/PDF files → Document Manager stores them.
+2. **User enters** a question → React Native calls native Q\&A API.
+3. **Native Q\&A API** invokes:
+   a. Text Extraction → Retrieval → LLM inference.
+   b. Receives dynamic answer from MLC LLM.
+4. **Answer returned** to React Native and displayed, prefixed with "AI:".
 
 ---
 
-## 6. Lifecycle and Resource Management
+## Implementation Steps
 
-- Activate the LLM runtime only while auto-reply is enabled to conserve device memory and CPU.
-- Gracefully shut down or pause the LLM when auto-reply is turned off or the app is closed.
-- Ensure inference tasks run in background threads or services, keeping the UI responsive.
+1. **Set Up File Upload UI**
+
+   - Implement multi-file selector in React Native.
+   - Pass selected file URIs to native Document Manager bridge.
+
+2. **Develop Document Manager**
+
+   - Store files in internal storage.
+   - Return list of stored file URIs on request.
+
+3. **Implement Text Extraction**
+
+   - Integrate PDF and DOCX parsing libraries.
+   - Provide an API to extract text segments given a file URI.
+
+4. **Build Retrieval Controller**
+
+   - Define a simple scoring function.
+   - Return top relevant segments for a given question.
+
+5. **Configure MLC LLM Runtime**
+
+   - Add MLC LLM AAR to Gradle.
+   - Include quantized model weights in assets or download.
+
+6. **Implement Inference Pipeline**
+
+   - Create `generateAnswer` method: accept question + context, call MLC LLM, return result.
+   - Ensure inference runs asynchronously.
+
+7. **Connect React Native Bridge**
+
+   - Expose `askQuestion(question, fileUris)` to JS.
+   - Under the hood: extract, retrieve, infer, and callback with answer.
+
+8. **Ensure Dynamic Responses Only**
+
+   - Validate that no static strings exist.
+   - All replies must originate from the LLM's output.
+
+9. **Testing & Validation**
+
+   - Use sample DOCX/PDF with known content.
+   - Ask diverse questions and ensure dynamic, context-based answers.
+   - Verify fallback for out-of-scope queries:
+
+     > "AI: I'm sorry, I couldn't find an answer in your documents."
 
 ---
 
-## 7. User Controls and Feedback
+## Non-Functional Considerations
 
-- Provide a simple toggle in the React Native interface to enable or disable LLM-powered auto-replies.
-- Display real-time status messages: auto-reply on/off, inference success or fallback, and any errors encountered.
+- **Performance**: Quantize to 4-bit/8-bit models; run on background threads.
+- **Memory**: Unload the model when idle.
+- **Privacy & Security**: All processing stays on-device; no external calls.
+- **Extensibility**: Retrieval logic can plug into future vector DBs or advanced search.
 
----
+## Additional Implementation
 
-## 8. Validation and Quality Assurance
+### Rank document passages by relevance to the query
 
-- Test with a variety of document types and content to confirm accurate LLM-based replies.
-- Validate fallback messages for out-of-scope questions and offline conditions.
-- Monitor performance metrics (latency, memory usage) to ensure a smooth user experience.
-
----
-
-**Implementation Note:**
-Cursor AI should interpret these high-level steps into the required native and React Native integrations, ensuring that no explicit code samples are embedded in the document itself.
+```kotlin
+/**
+ * Rank document passages by relevance to the query
+ */
+private fun rankPassagesByRelevance(passages: List<String>, query: String): List<String> {
+    // Simple implementation - count term frequency
+    return passages.sortedByDescending { passage ->
+        query.toLowerCase().split(" ").filter { it.length > 3 }.sumOf { term ->
+            passage.toLowerCase().split(" ").count { it == term }
+        }
+    }
+}
+```
