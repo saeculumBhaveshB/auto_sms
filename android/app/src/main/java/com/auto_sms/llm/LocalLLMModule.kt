@@ -2,16 +2,22 @@ package com.auto_sms.llm
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import com.facebook.react.bridge.*
-import kotlinx.coroutines.*
+import com.auto_sms.callsms.CallSmsModule
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.system.measureTimeMillis
+import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.*
 
 /**
  * LocalLLMModule - Native module for running local LLM models on device
@@ -669,6 +675,123 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
                     promise.resolve(false)
                 }
             }
+        }
+    }
+
+    /**
+     * Extracts an answer from the given context by finding relevant information
+     * based solely on document content, with no hardcoded responses
+     */
+    private fun extractAnswerFromContext(question: String, context: String?): String? {
+        if (context == null || context.isBlank()) {
+            return null
+        }
+        
+        // Convert question to lowercase for easier matching
+        val questionLower = question.lowercase()
+        
+        // Break the context into paragraphs for analysis
+        val paragraphs = context.split("\n\n")
+        
+        // Extract keywords from the question (words with 4+ characters)
+        val keywords = questionLower
+            .split(Regex("\\s+"))
+            .filter { it.length >= 4 }
+            .map { it.lowercase() }
+            .toSet()
+        
+        // Score paragraphs by keyword matching
+        val scoredParagraphs = paragraphs.map { paragraph ->
+            val paragraphLower = paragraph.lowercase()
+            val score = keywords.count { keyword ->
+                paragraphLower.contains(keyword)
+            }
+            Pair(paragraph, score)
+        }
+        
+        // Get the most relevant paragraphs
+        val relevantParagraphs = scoredParagraphs
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(3)
+            .map { it.first }
+        
+        if (relevantParagraphs.isEmpty()) {
+            return null
+        }
+        
+        // Construct a response using the relevant paragraphs
+        val response = StringBuilder()
+        response.append("Based on the document content, ")
+        
+        // Add the relevant paragraphs to the response
+        relevantParagraphs.forEachIndexed { index, paragraph ->
+            if (index > 0) {
+                response.append(" Additionally, ")
+            }
+            
+            // Clean up the paragraph and add it to the response
+            val cleanParagraph = paragraph
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            
+            response.append(cleanParagraph)
+            if (!cleanParagraph.endsWith(".") && !cleanParagraph.endsWith("!") && !cleanParagraph.endsWith("?")) {
+                response.append(".")
+            }
+        }
+        
+        return response.toString()
+    }
+
+    /**
+     * Force load the default model and return detailed status information
+     * This is useful for debugging when the model isn't loading automatically
+     */
+    @ReactMethod
+    fun forceLoadDefaultModel(promise: Promise) {
+        try {
+            Log.d(TAG, "🚀 Force loading default model...")
+            val startTime = System.currentTimeMillis()
+            
+            // Create a detailed response map
+            val resultMap = Arguments.createMap()
+            resultMap.putBoolean("wasLoaded", isModelLoaded)
+            
+            // Get default model path
+            val modelPath = getDefaultModelPath()
+            resultMap.putString("modelPath", modelPath)
+            
+            // Try to unload first if needed
+            if (isModelLoaded) {
+                val unloaded = mlcLlmModule.unloadModel()
+                resultMap.putBoolean("unloaded", unloaded)
+                isModelLoaded = false
+            }
+            
+            // Use the existing load implementation
+            val success = loadModelSync(modelPath)
+            resultMap.putBoolean("loadSuccess", success)
+            
+            // Add real model info
+            val hasRealInterpreter = try {
+                mlcLlmModule.hasInterpreter()
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error checking for real interpreter", e)
+                false
+            }
+            resultMap.putBoolean("isRealModel", hasRealInterpreter)
+            resultMap.putBoolean("finalStatus", isModelLoaded)
+            
+            // Add timing
+            val endTime = System.currentTimeMillis()
+            resultMap.putInt("loadTimeMs", (endTime - startTime).toInt())
+            
+            Log.d(TAG, "✅ Force load complete. Success: $success, IsRealModel: $hasRealInterpreter")
+            promise.resolve(resultMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in forceLoadDefaultModel", e)
+            promise.reject("LOAD_ERROR", "Failed to load model: ${e.message}")
         }
     }
 } 

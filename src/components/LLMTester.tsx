@@ -551,6 +551,54 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
     }
   };
 
+  // Force load the model explicitly
+  const forceLoadModel = async () => {
+    try {
+      logDebug("🚀 Explicitly forcing model to load...");
+      setLoading(true);
+
+      // First get the actual loading result from native code
+      const result = await LocalLLMModule.forceLoadDefaultModel();
+
+      // Log the raw result for debugging
+      logDebug(`📊 Force load details: ${JSON.stringify(result)}`);
+
+      // Check if the result is a boolean (old API) or an object (new API)
+      let success = false;
+      let hasRealModel = false;
+
+      if (typeof result === "boolean") {
+        // Old API just returns a boolean
+        success = result;
+        // Need to separately check if we have a real model
+        try {
+          hasRealModel = await LocalLLMModule.hasRealModel();
+        } catch (e) {
+          hasRealModel = false;
+        }
+      } else if (result && typeof result === "object") {
+        // New API returns an object with details
+        success = result.loadSuccess === true;
+        hasRealModel = result.isRealModel === true;
+      }
+
+      logDebug(
+        `✅ Model load complete. Success: ${success}, Real model: ${hasRealModel}`
+      );
+
+      // Update UI state
+      setIsModelLoaded(success);
+      setIsInFallbackMode(!hasRealModel);
+
+      return success;
+    } catch (e: any) {
+      logDebug(`❌ Error forcing model load: ${e.message || e}`);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>LLM Tester</Text>
@@ -688,12 +736,26 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
           style={[
             styles.button,
             styles.secondaryButton,
-            { flex: 1, marginLeft: 4 },
+            { flex: 0.7, marginLeft: 4, marginRight: 4 },
           ]}
           onPress={verifyDocuments}
           disabled={loading}
         >
           <Text style={styles.secondaryButtonText}>Verify Documents</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.button,
+            isModelLoaded ? styles.unloadButton : styles.loadButton,
+            { flex: 0.7, marginLeft: 4 },
+          ]}
+          onPress={forceLoadModel}
+          disabled={loading}
+        >
+          <Text style={styles.secondaryButtonText}>
+            {isModelLoaded ? "Reload Model" : "Load Model"}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -939,6 +1001,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#2e7d32",
     lineHeight: 18,
+  },
+  unloadButton: {
+    backgroundColor: "#f44336",
+    borderWidth: 1,
+    borderColor: "#d32f2f",
+  },
+  loadButton: {
+    backgroundColor: "#4caf50",
+    borderWidth: 1,
+    borderColor: "#388e3c",
   },
 });
 

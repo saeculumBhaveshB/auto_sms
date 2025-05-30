@@ -29,11 +29,22 @@ import java.io.FileInputStream
 import java.util.Timer
 import java.util.TimerTask
 import kotlinx.coroutines.runBlocking
+import com.auto_sms.docextractor.DocExtractorHelper
 
 class CallSmsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     private val TAG = "CallSmsModule"
+    
+    // Common stopwords to ignore when analyzing text
+    private val STOPWORDS = setOf(
+        "the", "and", "that", "have", "for", "not", "with", "you", "this", "but", "his", "from", 
+        "they", "she", "will", "would", "there", "their", "what", "about", "which", "when", "make", 
+        "like", "time", "just", "know", "take", "into", "year", "your", "good", "some", "could", 
+        "them", "than", "then", "look", "only", "come", "over", "think", "also", "back", "after", 
+        "work", "first", "well", "even", "want", "because", "these", "give", "most"
+    )
+    
     private var callReceiver: BroadcastReceiver? = null
     private var isMonitoringCalls = false
     private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
@@ -1205,8 +1216,76 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                         }
                     } else {
                         timeoutTimer.cancel()
-                        // Create a default response
-                        promise.resolve("AI: I need my language model loaded to fully analyze your documents. Please ensure the model is loaded first.")
+                        
+                        // Create a document-based response directly using the extracted text
+                        val relevantPassages = extractRelevantPassagesFromDocuments(question, documentContentMap)
+                        
+                        if (relevantPassages.isNotEmpty()) {
+                            // Use the most relevant passage to create a response
+                            val topPassage = relevantPassages.first()
+                            
+                            // Extract sentences from the passage
+                            val sentences = topPassage.split(Regex("[.!?]\\s+"))
+                                .filter { it.trim().length > 20 }
+                            
+                            // Extract keywords from the question
+                            val keywords = question.lowercase()
+                                .split(Regex("\\s+"))
+                                .filter { it.length >= 4 }
+                                .toSet()
+                            
+                            // Find sentences that might answer the question
+                            val relevantSentences = sentences
+                                .filter { sentence -> 
+                                    keywords.any { keyword -> 
+                                        sentence.lowercase().contains(keyword) 
+                                    }
+                                }
+                                .take(2)
+                            
+                            if (relevantSentences.isNotEmpty()) {
+                                // Construct a helpful response using the extracted content
+                                val response = StringBuilder("AI: Based on your documents, I found: ")
+                                relevantSentences.forEach { sentence ->
+                                    response.append(sentence.trim())
+                                    if (!sentence.trim().endsWith(".")) response.append(".")
+                                    response.append(" ")
+                                }
+                                
+                                // Add source document reference
+                                val sourceDoc = documentContentMap.entries
+                                    .firstOrNull { (_, content) -> content.contains(topPassage) }?.key ?: "your documents"
+                                
+                                response.append("This information is from $sourceDoc.")
+                                promise.resolve(response.toString())
+                            } else {
+                                // If we couldn't find relevant sentences, use document names
+                                val documentNames = documentContentMap.keys.take(3).joinToString(", ")
+                                val documentCountText = if (documentContentMap.size > 3) {
+                                    "$documentNames and ${documentContentMap.size - 3} more"
+                                } else {
+                                    documentNames
+                                }
+                                
+                                // Find documents that might contain relevant info
+                                val possiblyRelevantDocs = documentContentMap.entries
+                                    .filter { (_, content) -> 
+                                        keywords.any { keyword -> content.lowercase().contains(keyword) }
+                                    }
+                                    .map { it.key }
+                                    .take(2)
+                                
+                                if (possiblyRelevantDocs.isNotEmpty()) {
+                                    val relevantDocNames = possiblyRelevantDocs.joinToString(", ")
+                                    promise.resolve("AI: I analyzed your documents ($documentCountText) and found that '$relevantDocNames' might contain information related to your question, but I couldn't extract a specific answer about '${question.take(30)}${if (question.length > 30) "..." else ""}'.")
+                                } else {
+                                    promise.resolve("AI: I've examined your documents ($documentCountText) but couldn't find specific information about '${question.take(30)}${if (question.length > 30) "..." else ""}'. Try asking about topics covered in your documents.")
+                                }
+                            }
+                        } else {
+                            // Generic response when no relevant content found
+                            promise.resolve("AI: I've looked through your documents but couldn't find specific information related to your question. Please try asking about topics covered in your documents.")
+                        }
                     }
                     return
                 }
@@ -1230,16 +1309,65 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     promise.reject("LLM_ERROR", e.message)
                 }
             } else {
-                // Provide a fallback response
-                val response = "AI: I can't find any relevant documents to help answer your question, and my language model isn't fully loaded. Please try again after loading the model."
-                promise.resolve(response)
+                // Generate a response based on the query content
+                val keyTerms = identifyKeyTerms(question)
+                if (keyTerms.isNotEmpty()) {
+                    val response = "AI: I don't have any documents to analyze about '${keyTerms.joinToString(", ")}'. Please upload relevant documents first."
+                    promise.resolve(response)
+                } else {
+                    val response = "AI: I don't have any documents to analyze. Please upload some documents related to your question."
+                    promise.resolve(response)
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error testing LLM: ${e.message}", e)
-            promise.resolve("AI: I encountered an error while processing your request. Please try again.")
+            Log.e(TAG, "❌ Error testing LLM: ${e.message}")
+            promise.reject("LLM_ERROR", "Failed to test LLM: ${e.message}")
         }
     }
     
+    /**
+     * Extract relevant passages from document content map
+     */
+    private fun extractRelevantPassagesFromDocuments(
+        question: String, 
+        documentContentMap: Map<String, String>
+    ): List<String> {
+        val allPassages = mutableListOf<String>()
+        
+        // Extract keywords from the question
+        val keywords = question.lowercase()
+            .split(Regex("\\s+"))
+            .filter { it.length >= 4 && !STOPWORDS.contains(it) }
+            .toSet()
+        
+        if (keywords.isEmpty()) {
+            return emptyList()
+        }
+        
+        // Process each document to extract passages
+        for ((_, content) in documentContentMap) {
+            // Split content into paragraphs
+            val paragraphs = content.split(Regex("\n\n+"))
+                .filter { it.length >= 50 } // Only consider substantial paragraphs
+            
+            // Add paragraphs with any keyword match
+            for (paragraph in paragraphs) {
+                val paragraphLower = paragraph.lowercase()
+                // Check if any keyword is in the paragraph
+                if (keywords.any { keyword -> paragraphLower.contains(keyword) }) {
+                    allPassages.add(paragraph)
+                }
+            }
+        }
+        
+        // Sort by relevance (count of keyword matches)
+        return allPassages.sortedByDescending { passage ->
+            // Calculate relevance score based on keyword matches
+            val passageLower = passage.lowercase()
+            keywords.count { keyword -> passageLower.contains(keyword) }
+        }
+    }
+
     /**
      * Build a prompt that includes document content for the LLM
      */
@@ -1608,197 +1736,97 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Enhanced version of testLLM that performs document retrieval for better context
-     * This implements a full Q&A pipeline with document retrieval
-     */
-    @ReactMethod
-    fun documentQA(question: String, maxResults: Int, promise: Promise) {
-        try {
-            Log.d(TAG, "📚 Document QA request: $question")
-            val startTime = System.currentTimeMillis()
-            
-            // Set a timeout to prevent hanging
-            val timeoutTimer = Timer()
-            val timeoutTask = object : TimerTask() {
-                override fun run() {
-                    Log.e(TAG, "⚠️ Document QA processing timeout reached")
-                    promise.resolve("AI: The processing took too long to respond. This might be due to complex documents or processing issues.")
-                }
-            }
-            timeoutTimer.schedule(timeoutTask, 30000) // 30 second timeout
-            
-            // 1. Extract text from documents
-            val documentsWithText = extractTextFromAllDocuments()
-            Log.d(TAG, "📊 Extracted text from ${documentsWithText.size} documents")
-            
-            if (documentsWithText.isEmpty()) {
-                timeoutTimer.cancel()
-                promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first.")
-                return
-            }
-            
-            // 2. Create structured passages from documents
-            val passages = createPassagesFromDocuments(documentsWithText)
-            Log.d(TAG, "📊 Created ${passages.size} passages from documents")
-            
-            // 3. Retrieve the most relevant passages to the query
-            val rankedPassages = rankPassagesByRelevance(passages, question, maxResults)
-            Log.d(TAG, "🔍 Selected ${rankedPassages.size} most relevant passages")
-            
-            // 4. Generate a prompt with the chosen passages
-            val prompt = buildQAPrompt(question, rankedPassages)
-            Log.d(TAG, "📝 Created prompt with ${prompt.length} characters")
-            
-            // 5. Get LLM module for inference
-            val llmModule = reactApplicationContext.getNativeModule(
-                com.auto_sms.llm.LocalLLMModule::class.java
-            )
-            
-            // Check if model is loaded first
-            if (llmModule != null && llmModule.isModelLoadedSync()) {
-                Log.d(TAG, "🧠 Using enhanced LLM with context for Document QA")
-                
-                try {
-                    // Use a direct approach with runBlocking to handle async behavior
-                    val response = runBlocking {
-                        llmModule.generateAnswer(question, prompt, 0.7f)
-                    }
-                    
-                    // Format response for UI
-                    val formattedResponse = if (!response.startsWith("AI:")) {
-                        "AI: $response"
-            } else {
-                        response
-                    }
-                    
-                    timeoutTimer.cancel()
-                    val endTime = System.currentTimeMillis()
-                    Log.d(TAG, "⏱️ Document QA completed in ${endTime - startTime}ms")
-                    
-                    promise.resolve(formattedResponse)
-        } catch (e: Exception) {
-                    timeoutTimer.cancel()
-                    Log.e(TAG, "❌ Error generating response with context: ${e.message}")
-                    
-                    // Fallback to simplified response based on document content
-                    provideFallbackResponse(question, rankedPassages, promise)
-                }
-            } else {
-                // Model not loaded - use simplified approach to provide a reasonable answer
-                timeoutTimer.cancel()
-                Log.d(TAG, "ℹ️ LLM model not loaded, using simplified document analysis")
-                
-                // Provide a reasonable response based on the extracted document content
-                provideFallbackResponse(question, rankedPassages, promise)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error in Document QA: ${e.message}")
-            promise.resolve("AI: I encountered an error while processing your documents. Please try again.")
-        }
-    }
-
-    /**
-     * Provide a response based purely on document content
-     */
-    private fun provideFallbackResponse(question: String, passages: List<Passage>, promise: Promise) {
-        try {
-            Log.d(TAG, "📝 Creating content-based response from documents")
-            
-            val response = StringBuilder("AI: ")
-            
-            // If we have passages, use their content directly
-            if (passages.isNotEmpty()) {
-                // Extract the most relevant passage
-                val mostRelevantPassage = passages.first()
-                
-                // Find sentences in the passage that might answer the question
-                val questionWords = question.lowercase().split(" ")
-                    .filter { it.length > 3 }
-                    .toSet()
-                
-                // Split passage into sentences
-                val sentences = mostRelevantPassage.text
-                    .replace("\n", " ")
-                    .split(Regex("[.!?]\\s+"))
-                    .filter { it.length > 20 }
-                
-                // Find most relevant sentences
-                val relevantSentences = sentences
-                    .sortedByDescending { sentence -> 
-                        questionWords.count { word -> sentence.lowercase().contains(word) }
-                    }
-                    .take(3)
-                
-                if (relevantSentences.isNotEmpty()) {
-                    response.append("Based on your documents, ")
-                    
-                    // Construct a cohesive answer from relevant sentences
-                    relevantSentences.forEachIndexed { index, sentence ->
-                        if (index > 0) response.append(" ")
-                        response.append(sentence.trim())
-                        if (!sentence.endsWith(".")) response.append(".")
-                    }
-                    
-                    // Add document reference
-                    response.append(" This information is from '${mostRelevantPassage.documentName}'.")
-                } else {
-                    // Fallback to a document-aware generic response
-                    response.append("I found information in '${mostRelevantPassage.documentName}' that might be relevant to your query.")
-                    response.append(" The document contains sections related to ${identifyTopics(mostRelevantPassage.text)}.")
-                    response.append(" You may want to review this document directly for more specific details.")
-                }
-            } else {
-                // No relevant passages found
-                response.append("I don't see specific information about your question in your uploaded documents. ")
-                response.append("Please try uploading documents with relevant information or rephrase your question.")
-            }
-            
-            promise.resolve(response.toString())
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error creating content-based response: ${e.message}")
-            promise.resolve("AI: I've analyzed your documents but couldn't generate a specific answer. Please check your documents directly or try a more specific question.")
-        }
-    }
-
-    /**
-     * Extract text from a DOCX file
-     * Generic implementation that works for any document
+     * Extract text from a DOCX file using the helper class
      */
     private fun extractTextFromDocx(file: File): String {
-        return try {
-            Log.d(TAG, "📄 Extracting content from DOCX: ${file.name}")
-            
-            // First, attempt to read file as raw binary and look for text
-            val rawBytes = file.readBytes()
-            val rawContent = String(rawBytes, Charsets.UTF_8)
-            
-            // Extract plain text by finding patterns in the raw content
-            val textBuilder = StringBuilder()
-            
-            // Extract any text-like content from the raw binary
-            val textPattern = Regex("[A-Za-z0-9][A-Za-z0-9 .,;:?!\\-'\"]{10,}")
-            val matches = textPattern.findAll(rawContent)
-            
-            matches.forEach { match ->
-                if (!match.value.contains("PK") && match.value.length > 15) {
-                    textBuilder.append(match.value.trim())
-                    textBuilder.append("\n\n")
-                }
-            }
-            
-            // If we couldn't extract much, add basic information about the file
-            if (textBuilder.length < 100) {
-                textBuilder.append("Document: ${file.name}\n")
-                textBuilder.append("This document appears to contain formatted content that may include ")
-                textBuilder.append("text, tables, images, and other elements relevant to your query.")
-            }
-            
-            // Return the extracted text
-            textBuilder.toString()
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error with DOCX handling: ${e.message}")
-            "This document couldn't be fully processed. Please try uploading it in a different format."
+        return DocExtractorHelper.extractTextFromDocx(file)
+    }
+
+    /**
+     * Extract text from a PDF file using the helper class
+     */
+    private fun extractTextFromPdf(file: File): String {
+        return DocExtractorHelper.extractTextFromPdf(file)
+    }
+
+    /**
+     * Extract text from all available documents
+     */
+    private fun extractTextFromAllDocuments(): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val documentsDir = File(reactApplicationContext.filesDir, "documents")
+        
+        if (!documentsDir.exists() || !documentsDir.isDirectory) {
+            Log.e(TAG, "❌ Documents directory doesn't exist")
+            return result
         }
+        
+        val files = documentsDir.listFiles() ?: return result
+        
+        for (file in files) {
+            if (!file.isFile) continue
+            
+            try {
+                // Skip files that are too large
+                if (file.length() > 10 * 1024 * 1024) { // 10MB limit
+                    Log.e(TAG, "⚠️ Skipping large file for extraction: ${file.name} (${file.length() / 1024} KB)")
+                    result[file.name] = "[File too large to process]"
+                    continue
+                }
+                
+                // Skip files that aren't useful for content extraction
+                if (DocExtractorHelper.shouldSkipFile(file.name)) {
+                    continue
+                }
+                
+                val text = when {
+                    // PDF files
+                    file.name.lowercase().endsWith(".pdf") -> {
+                        try {
+                            extractTextFromPdf(file)
+                        } catch (pdfErr: Exception) {
+                            Log.e(TAG, "❌ Error extracting PDF: ${pdfErr.message}")
+                            "Error extracting content from this PDF document."
+                        }
+                    }
+                    
+                    // DOCX files using our generic approach
+                    file.name.lowercase().endsWith(".docx") -> {
+                        try {
+                            extractTextFromDocx(file)
+                        } catch (docxErr: Exception) {
+                            Log.e(TAG, "❌ Error handling DOCX: ${docxErr.message}")
+                            "Error extracting content from this DOCX document."
+                        }
+                    }
+                    
+                    // Plain text files
+                    file.name.lowercase().endsWith(".txt") || 
+                    file.name.lowercase().endsWith(".md") ||
+                    file.name.lowercase().endsWith(".csv") -> {
+                        try {
+                            file.readText()
+                        } catch (txtErr: Exception) {
+                            Log.e(TAG, "❌ Error reading text file: ${txtErr.message}")
+                            "Error reading this text file."
+                        }
+                    }
+                    
+                    // Skip other file types
+                    else -> null
+                }
+                
+                if (!text.isNullOrBlank()) {
+                    result[file.name] = text
+                    Log.d(TAG, "✅ Extracted ${text.length} chars from ${file.name}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to extract text from ${file.name}: ${e.message}")
+                // Continue with other files
+            }
+        }
+        
+        return result
     }
 
     /**
@@ -1900,16 +1928,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
     
     /**
-     * Common English stopwords to filter out
-     */
-    private val STOPWORDS = setOf(
-        "the", "and", "that", "for", "with", "this", "from", "have", "are", "you", 
-        "not", "was", "were", "they", "will", "what", "when", "how", "where", "which", 
-        "who", "whom", "whose", "why", "can", "could", "should", "would", "may", "might",
-        "must", "their", "them", "these", "those", "there", "here", "over", "under", "above"
-    )
-    
-    /**
      * Build a QA prompt with retrieved passages for the LLM
      */
     private fun buildQAPrompt(question: String, passages: List<Passage>): String {
@@ -1942,36 +1960,156 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
 
     /**
      * Rank document passages by relevance to the query
+     * This improved implementation uses semantic keyword matching and medical term recognition
      */
     private fun rankPassagesByRelevance(passages: List<Passage>, query: String, maxResults: Int = 5): List<Passage> {
-        // Simple implementation - count term frequency
-        return passages.sortedByDescending { passage ->
-            query.lowercase().split(" ").filter { it.length > 3 }.sumOf { term ->
-                passage.text.lowercase().split(" ").count { it == term }
+        // Extract keywords from the query, including medical terms
+        val queryTerms = extractKeywords(query)
+        Log.d(TAG, "🔍 Query terms: ${queryTerms.joinToString(", ")}")
+        
+        // Score passages based on multiple factors
+        val scoredPassages = passages.map { passage ->
+            // Make a copy with initial score of 0
+            val scoredPassage = passage.copy(score = 0f)
+            
+            // 1. Basic keyword frequency (weighted higher for medical terms)
+            queryTerms.forEach { term ->
+                // Count occurrences of the term
+                val termCount = countTermOccurrences(passage.text.lowercase(), term)
+                
+                // Apply higher weight for medical terms
+                val weight = if (MEDICAL_TERMS.any { medTerm -> 
+                    term.contains(medTerm) || medTerm.contains(term)
+                }) 2.0f else 1.0f
+                
+                scoredPassage.score += termCount * weight
             }
-        }.take(maxResults)
+            
+            // 2. Exact phrase matching
+            if (passage.text.lowercase().contains(query.lowercase())) {
+                scoredPassage.score += 5.0f
+            }
+            
+            // 3. Paragraph-level relevance (prefer passages with concentrated matches)
+            val paragraphs = passage.text.split("\n\n")
+            val paragraphScores = paragraphs.map { para ->
+                queryTerms.count { term -> para.lowercase().contains(term.lowercase()) }
+            }
+            
+            // Bonus for concentrated relevant paragraphs
+            if (paragraphScores.any { it >= 3 }) {
+                scoredPassage.score += 3.0f
+            }
+            
+            // 4. Document name relevance
+            if (queryTerms.any { passage.documentName.lowercase().contains(it.lowercase()) }) {
+                scoredPassage.score += 2.0f
+            }
+            
+            // 5. Special handling for diagnostic criteria questions
+            if (query.lowercase().contains("diagnostic") || 
+                query.lowercase().contains("criteria") ||
+                query.lowercase().contains("diagnosis")) {
+                
+                // Look for patterns that often indicate diagnostic criteria
+                val diagnosticPatterns = listOf(
+                    "criteria for", "diagnosed when", "diagnosis requires",
+                    "classified as", "definition of", "diagnostic criteria"
+                )
+                
+                diagnosticPatterns.forEach { pattern ->
+                    if (passage.text.lowercase().contains(pattern)) {
+                        scoredPassage.score += 4.0f
+                    }
+                }
+            }
+            
+            scoredPassage
+        }
+        
+        // Sort by score and take top results
+        val result = scoredPassages.sortedByDescending { it.score }.take(maxResults)
+        
+        // Log the selected passages for debugging
+        result.forEachIndexed { index, passage ->
+            Log.d(TAG, "📊 Selected passage ${index+1} (score: ${passage.score}): ${passage.documentName} - ${passage.text.take(50)}...")
+        }
+        
+        return result
     }
+    
+    /**
+     * Extract keywords from a query string
+     */
+    private fun extractKeywords(query: String): Set<String> {
+        // Normalize query
+        val normalizedQuery = query.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        
+        // Split into words
+        val words = normalizedQuery.split(" ")
+        
+        // Filter out stopwords and short words
+        val filteredWords = words.filter { 
+            it.length > 3 && !STOPWORDS.contains(it) 
+        }.toMutableSet()
+        
+        // Add common n-grams from the query
+        val bigrams = words.zipWithNext { a, b -> "$a $b" }
+        filteredWords.addAll(bigrams.filter { 
+            !STOPWORDS.contains(it) && it.length > 5 
+        })
+        
+        // For medical questions, add specific related terms
+        val medicalPrefixes = setOf("hyper", "cardio", "blood", "pressure", "diag")
+        medicalPrefixes.forEach { prefix ->
+            if (normalizedQuery.contains(prefix)) {
+                // Add related medical terms that may not be explicitly in the query
+                val relatedTerms = MEDICAL_TERMS.filter { it.contains(prefix) }
+                filteredWords.addAll(relatedTerms)
+            }
+        }
+        
+        return filteredWords
+    }
+    
+    /**
+     * Count occurrences of a term in text, considering word boundaries
+     */
+    private fun countTermOccurrences(text: String, term: String): Int {
+        // If term contains spaces, count as phrase
+        if (term.contains(" ")) {
+            var count = 0
+            var index = 0
+            while (index != -1) {
+                index = text.indexOf(term, index)
+                if (index != -1) {
+                    count++
+                    index += term.length
+                }
+            }
+            return count
+        } else {
+            // For single words, count whole word matches
+            return "\\b$term\\b".toRegex().findAll(text).count()
+        }
+    }
+    
+    // Medical terms that may be relevant to various health-related queries
+    private val MEDICAL_TERMS = setOf(
+        "hypertension", "blood pressure", "systolic", "diastolic", 
+        "mmhg", "cardiovascular", "diagnosis", "diagnostic", "criteria",
+        "heart disease", "stroke", "risk factor", "treatment", "medication",
+        "lifestyle", "diet", "sodium", "salt", "exercise", "obesity", "smoking"
+    )
 
     /**
      * Check if a file should be skipped based on its name or size
      */
     private fun shouldSkipFile(fileName: String): Boolean {
-        // Skip files that are clearly not useful for text extraction
-        val lowercaseName = fileName.lowercase()
-        
-        // Skip image files and other non-document formats
-        if (lowercaseName.matches(Regex(".+\\.(jpg|jpeg|png|gif|bmp|ico|webp|svg|mp3|mp4|avi|mov)$"))) {
-            Log.d(TAG, "⏩ Skipping media file: $fileName")
-            return true
-        }
-        
-        // Skip system files
-        if (lowercaseName.startsWith(".") || lowercaseName == "thumbs.db" || lowercaseName == "desktop.ini") {
-            Log.d(TAG, "⏩ Skipping system file: $fileName")
-            return true
-        }
-        
-        return false
+        return DocExtractorHelper.shouldSkipFile(fileName)
     }
 
     /**
@@ -2003,5 +2141,739 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         } else {
             topWords.joinToString(", ")
         }
+    }
+
+    /**
+     * Extract key terms from a question for better responses
+     */
+    private fun identifyKeyTerms(question: String): List<String> {
+        val words = question.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.length > 4 && !STOPWORDS.contains(it) }
+        
+        // Count word frequencies
+        val wordCounts = mutableMapOf<String, Int>()
+        words.forEach { word ->
+            wordCounts[word] = (wordCounts[word] ?: 0) + 1
+        }
+        
+        // Get top words as key terms
+        return wordCounts.entries
+            .sortedByDescending { it.value }
+            .take(3)
+            .map { it.key }
+    }
+
+    /**
+     * Parse XML content from document.xml to extract text
+     */
+    private fun parseDocumentXml(xmlContent: String): String {
+        try {
+            val textBuilder = StringBuilder()
+            
+            // Basic XML parsing using regex - more reliable than DOM parser for this purpose
+            // Look for text inside <w:t> tags
+            val textPattern = Regex("<w:t[^>]*>(.*?)</w:t>")
+            val matches = textPattern.findAll(xmlContent)
+            
+            for (match in matches) {
+                val text = match.groupValues[1]
+                if (text.isNotBlank()) {
+                    textBuilder.append(text)
+                    // Add space after each text element
+                    textBuilder.append(" ")
+                }
+            }
+            
+            // Add paragraph breaks
+            val result = textBuilder.toString()
+                .replace("</w:p><w:p", "\n")
+                .replace("</w:p>", "\n")
+            
+            return result
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error parsing document XML: ${e.message}")
+            return ""
+        }
+    }
+
+    /**
+     * Format criteria text to be more readable
+     */
+    private fun formatCriteriaText(text: String): String {
+        // Convert bullet points or numbered lists to a more readable format
+        val formattedText = text
+            .replace(Regex("•\\s*"), "• ")
+            .replace(Regex("\\n\\s*([0-9]+)\\. "), "\n$1. ")
+            .replace(Regex("\\n\\s*-\\s+"), "\n- ")
+        
+        return formattedText
+    }
+    
+    // Rename the extension function to avoid conflicts
+    private fun <T> Iterable<T>.countMatchScore(selector: (T) -> Int): Int {
+        var sum = 0
+        for (element in this) {
+            sum += selector(element)
+        }
+        return sum
+    }
+
+    /**
+     * Extract criteria section from text with explicit Int return type
+     */
+    private fun extractCriteriaSection(text: String, topic: String): String {
+        // Look for the criteria section
+        val patterns = listOf(
+            "diagnostic criteria for $topic",
+            "criteria for $topic",
+            "diagnosis of $topic",
+            "$topic is diagnosed when",
+            "$topic criteria"
+        )
+        
+        // Find the start of the criteria section
+        var startIndex = -1
+        var matchedPattern = ""
+        
+        for (pattern in patterns) {
+            val idx = text.lowercase().indexOf(pattern.lowercase())
+            if (idx >= 0) {
+                startIndex = idx
+                matchedPattern = pattern
+                break
+            }
+        }
+        
+        if (startIndex >= 0) {
+            // Extract a reasonable chunk of text starting from the pattern
+            val endIndex = minOf(startIndex + 600, text.length)
+            val criteriaText = text.substring(startIndex, endIndex)
+            
+            // Format the criteria text for better readability
+            return formatCriteriaText(criteriaText)
+        }
+        
+        // Fallback - extract the paragraph most likely to contain the criteria
+        val paragraphs = text.split("\n\n")
+        return paragraphs.maxByOrNull { para: String ->
+            val paraLower = para.lowercase()
+            val patternScore: Int = patterns.countMatchScore { pattern: String -> 
+                if (paraLower.contains(pattern.lowercase())) 10 else 0
+            }
+            patternScore + (if (paraLower.contains(topic.lowercase())) 5 else 0)
+        }?.take(300) ?: text.take(300) // Fall back to first part of text
+    }
+
+    /**
+     * Extract a definition section from text
+     */
+    private fun extractDefinitionSection(text: String, topic: String): String {
+        // Look for definition patterns
+        val patterns = listOf(
+            "$topic is defined as",
+            "$topic is",
+            "definition of $topic",
+            "$topic refers to"
+        )
+        
+        // Find the definition sentence
+        for (pattern in patterns) {
+            val index = text.lowercase().indexOf(pattern.lowercase())
+            if (index >= 0) {
+                // Extract the sentence containing the definition
+                val sentenceStart = text.lastIndexOf(".", index).let { 
+                    if (it < 0) 0 else it + 1 
+                }
+                val sentenceEnd = text.indexOf(".", index).let {
+                    if (it < 0) text.length else it + 1
+                }
+                
+                if (sentenceEnd > sentenceStart) {
+                    return text.substring(sentenceStart, sentenceEnd).trim()
+                }
+            }
+        }
+        
+        // Fallback - extract the paragraph most likely to contain the definition
+        val paragraphs = text.split("\n\n")
+        return paragraphs.maxByOrNull { para: String ->
+            val paraLower = para.lowercase()
+            val patternScore: Int = patterns.countMatchScore { pattern: String -> 
+                if (paraLower.contains(pattern.lowercase())) 10 else 0
+            }
+            patternScore + (if (paraLower.contains(topic.lowercase())) 5 else 0)
+        }?.take(300) ?: text.take(300) // Fall back to first part of text
+    }
+
+    /**
+     * Enhanced version of testLLM that performs document retrieval for better context
+     * This implements a full Q&A pipeline with document retrieval
+     */
+    @ReactMethod
+    fun documentQA(question: String, maxResults: Int, promise: Promise) {
+        try {
+            Log.d(TAG, "📚 Document QA request: $question")
+            val startTime = System.currentTimeMillis()
+            
+            // Set a timeout to prevent hanging
+            val timeoutTimer = Timer()
+            val timeoutTask = object : TimerTask() {
+                override fun run() {
+                    Log.e(TAG, "⚠️ Document QA processing timeout reached")
+                    promise.resolve("AI: The process is taking longer than expected. This might be due to complex documents. Please try again with a more specific question.")
+                }
+            }
+            timeoutTimer.schedule(timeoutTask, 30000) // 30 second timeout
+            
+            // 1. Extract text from documents
+            val documentsWithText = extractTextFromAllDocuments()
+            Log.d(TAG, "📊 Extracted text from ${documentsWithText.size} documents")
+            
+            if (documentsWithText.isEmpty()) {
+                timeoutTimer.cancel()
+                // Check if documents directory exists but has no extractable text
+                val documentsDir = File(reactApplicationContext.filesDir, "documents")
+                if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
+                    promise.resolve("AI: I found documents in your library, but couldn't extract readable text from them. Try uploading PDF or DOCX files with selectable text content.")
+                } else {
+                    promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first.")
+                }
+                return
+            }
+            
+            // 2. Create structured passages from documents
+            val passages = createPassagesFromDocuments(documentsWithText)
+            Log.d(TAG, "📊 Created ${passages.size} passages from documents")
+            
+            // 3. Retrieve the most relevant passages to the query
+            val rankedPassages = rankPassagesByRelevance(passages, question, maxResults)
+            Log.d(TAG, "🔍 Selected ${rankedPassages.size} most relevant passages")
+            
+            // 4. Generate a prompt with the chosen passages
+            val prompt = buildEnhancedQAPrompt(question, rankedPassages)
+            Log.d(TAG, "📝 Created prompt with ${prompt.toString().length} characters")
+            
+            // 5. Get LLM module for inference
+            val llmModule = reactApplicationContext.getNativeModule(
+                com.auto_sms.llm.LocalLLMModule::class.java
+            )
+            
+            // Check if model is loaded first
+            if (llmModule != null && llmModule.isModelLoadedSync()) {
+                Log.d(TAG, "🧠 Using enhanced LLM with context for Document QA")
+                
+                try {
+                    // Use a direct approach with runBlocking to handle async behavior
+                    val response = runBlocking {
+                        llmModule.generateAnswer(question, prompt, 0.7f)
+                    }
+                    
+                    // Format response for UI
+                    val formattedResponse = if (!response.startsWith("AI:")) {
+                        "AI: $response"
+                    } else {
+                        response
+                    }
+                    
+                    timeoutTimer.cancel()
+                    val endTime = System.currentTimeMillis()
+                    Log.d(TAG, "⏱️ Document QA completed in ${endTime - startTime}ms")
+                    
+                    promise.resolve(formattedResponse)
+                } catch (e: Exception) {
+                    timeoutTimer.cancel()
+                    Log.e(TAG, "❌ Error generating response with context: ${e.message}")
+                    
+                    // Fallback to simplified response based on document content
+                    provideFallbackResponse(question, rankedPassages, promise)
+                }
+            } else {
+                // Model not loaded - still use document content to provide a reasonable answer
+                timeoutTimer.cancel()
+                Log.d(TAG, "ℹ️ LLM model not loaded, using fallback document analysis")
+                
+                // Provide a document-aware response even without a model
+                if (rankedPassages.isNotEmpty()) {
+                    provideFallbackResponse(question, rankedPassages, promise)
+                } else {
+                    // No relevant passages found, but we have documents
+                    // Create a response based on document names
+                    val documentNames = documentsWithText.keys.take(3).joinToString(", ")
+                    val response = if (documentNames.isNotEmpty()) {
+                        "AI: I analyzed your documents ($documentNames) but couldn't find specific information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
+                    } else {
+                        "AI: I have ${documentsWithText.size} document(s) but couldn't find relevant information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
+                    }
+                    promise.resolve(response)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in Document QA: ${e.message}")
+            e.printStackTrace()
+            // Create a document-aware error response
+            try {
+                val documentsDir = File(reactApplicationContext.filesDir, "documents")
+                if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
+                    // We have documents but had an error processing them
+                    promise.resolve("AI: I encountered an issue while analyzing your documents for this specific question. Try asking a different question or check your document formats.")
+                } else {
+                    // No documents available
+                    promise.resolve("AI: I need documents to answer your questions properly. Please upload relevant documents first.")
+                }
+            } catch (fallbackError: Exception) {
+                // Last resort response
+                promise.resolve("AI: I encountered a technical issue while processing your request. Please try again.")
+            }
+        }
+    }
+    
+    /**
+     * Build a prompt for document QA with improved contextual awareness
+     */
+    private fun buildEnhancedQAPrompt(question: String, passages: List<Passage>): String {
+        val sb = StringBuilder()
+        
+        // Add system instruction for the LLM
+        sb.append("You are an AI assistant analyzing documents and answering questions based on their content.\n\n")
+        
+        // Add relevant passages from the documents as context
+        sb.append("Here are relevant passages from the documents:\n\n")
+        
+        passages.forEachIndexed { index, passage ->
+            sb.append("Passage ${index + 1} from '${passage.documentName}':\n")
+            sb.append(passage.text.trim())
+            sb.append("\n\n")
+        }
+        
+        // Add question-specific instructions based on question type
+        val questionLower = question.lowercase()
+        
+        when {
+            questionLower.contains("what is") || questionLower.contains("define") || 
+            questionLower.contains("meaning of") -> {
+                // Definition question
+                sb.append("The user is asking for a definition or explanation. ")
+                sb.append("Please extract and synthesize relevant information from the documents to ")
+                sb.append("provide a clear, accurate definition or explanation.\n\n")
+            }
+            questionLower.contains("how to") || questionLower.contains("steps") ||
+            questionLower.contains("process") -> {
+                // Process question
+                sb.append("The user is asking about a process or procedure. ")
+                sb.append("Please extract and organize the steps or methods described in the documents.\n\n")
+            }
+            questionLower.contains("diagnostic") || questionLower.contains("criteria") ||
+            questionLower.contains("symptoms") || questionLower.contains("diagnosed") -> {
+                // Medical diagnostic question
+                sb.append("The user is asking about medical diagnostic criteria or symptoms. ")
+                sb.append("Please extract and present the relevant diagnostic information from the documents ")
+                sb.append("in a clear, structured format.\n\n")
+            }
+            questionLower.contains("treatment") || questionLower.contains("therapy") ||
+            questionLower.contains("medication") -> {
+                // Treatment question
+                sb.append("The user is asking about treatment approaches. ")
+                sb.append("Please extract and summarize treatment information from the documents.\n\n")
+            }
+            else -> {
+                // General question
+                sb.append("Please analyze the document passages to provide an accurate, ")
+                sb.append("comprehensive answer based strictly on the information provided.\n\n")
+            }
+        }
+        
+        // Add the question
+        sb.append("User question: $question\n\n")
+        
+        // Add formatting instructions
+        sb.append("Answer: ")
+        
+        return sb.toString()
+    }
+
+    /**
+     * Provide a response based purely on document content
+     * This improved version creates more comprehensive answers from document text
+     */
+    private fun provideFallbackResponse(question: String, passages: List<Passage>, promise: Promise) {
+        try {
+            Log.d(TAG, "📝 Creating enhanced content-based response from documents")
+            
+            // If we have no passages, inform the user
+            if (passages.isEmpty()) {
+                val documentsDir = File(reactApplicationContext.filesDir, "documents")
+                if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
+                    // We have documents but couldn't find relevant passages
+                    val documentNames = documentsDir.listFiles()
+                        ?.filter { it.isFile }
+                        ?.take(3)
+                        ?.joinToString(", ") { it.name } ?: ""
+                    
+                    val response = if (documentNames.isNotEmpty()) {
+                        "AI: I've examined your documents ($documentNames) but couldn't find specific information about ${getQueryTopic(question)}. Consider uploading additional documents that cover this topic."
+                    } else {
+                        "AI: I've examined your documents but couldn't find information about ${getQueryTopic(question)}. Try asking about different topics in your documents."
+                    }
+                    promise.resolve(response)
+                } else {
+                    // No documents available
+                    promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first, then I can provide information based on their content.")
+                }
+                return
+            }
+            
+            // Get the most relevant passages and build a response
+            val response = StringBuilder("AI: ")
+            
+            // Check for specific question types
+            val questionLower = question.lowercase()
+            val isDefinitionQuestion = questionLower.startsWith("what is") || 
+                                     questionLower.startsWith("define") ||
+                                     questionLower.contains("meaning of")
+            
+            val isDiagnosticQuestion = questionLower.contains("diagnostic") || 
+                                      questionLower.contains("criteria") ||
+                                      questionLower.contains("symptom") ||
+                                      questionLower.contains("diagnosed") ||
+                                      questionLower.contains("signs of")
+            
+            val isTreatmentQuestion = questionLower.contains("treatment") ||
+                                    questionLower.contains("therapy") ||
+                                    questionLower.contains("medication") ||
+                                    questionLower.contains("manage") ||
+                                    questionLower.contains("cure")
+                                    
+            // Track which documents we've used for attribution
+            val usedDocuments = mutableSetOf<String>()
+            
+            if (isDefinitionQuestion) {
+                // Handle definition questions - try to find a precise definition first
+                val topic = getQueryTopic(question)
+                
+                // First, try to extract actual definitions
+                val definitionPassage = passages.firstOrNull { passage ->
+                    val text = passage.text.lowercase()
+                    text.contains("$topic is defined as") ||
+                    text.contains("$topic is a") ||
+                    text.contains("$topic refers to") ||
+                    text.contains("definition of $topic")
+                }
+                
+                if (definitionPassage != null) {
+                    // Extract just the definition sentence
+                    val definitionSentence = extractDefinitionSection(definitionPassage.text, topic)
+                    response.append(definitionSentence)
+                    usedDocuments.add(definitionPassage.documentName)
+                } else {
+                    // Use the most relevant passage
+                    val bestPassage = passages.first()
+                    response.append("Based on your documents, ")
+                    response.append(extractDefinitionSection(bestPassage.text, topic))
+                    usedDocuments.add(bestPassage.documentName)
+                }
+            } else if (isDiagnosticQuestion) {
+                // Handle diagnostic criteria questions
+                val topic = getQueryTopic(question)
+                
+                // Look for diagnostic criteria in structured format
+                val criteriaPassage = passages.firstOrNull { passage ->
+                    val text = passage.text
+                    // Look for bullet points or numbered lists
+                    (text.contains("•") || text.contains("* ") || text.contains("\n- ") || 
+                     text.contains("\n1. ") || text.contains("\n2. ")) &&
+                    // And contains relevant terms
+                    (text.lowercase().contains("criteria") || 
+                     text.lowercase().contains("diagnosed") || 
+                     text.lowercase().contains("symptoms"))
+                }
+                
+                if (criteriaPassage != null) {
+                    response.append("According to the diagnostic information in your documents, ")
+                    response.append(extractCriteriaSection(criteriaPassage.text, topic))
+                    usedDocuments.add(criteriaPassage.documentName)
+                } else {
+                    // Use the most relevant passage
+                    val bestPassage = passages.first()
+                    response.append("Based on your documents, ")
+                    response.append(extractCriteriaSection(bestPassage.text, topic))
+                    usedDocuments.add(bestPassage.documentName)
+                }
+            } else if (isTreatmentQuestion) {
+                // Handle treatment questions
+                response.append("According to your documents, treatment approaches include: ")
+                
+                // Extract treatment information from top passages
+                val treatmentInfo = extractTreatmentInformation(passages.take(2))
+                response.append(treatmentInfo)
+                
+                // Track used documents
+                passages.take(2).forEach { usedDocuments.add(it.documentName) }
+            } else {
+                // General questions - extract relevant content from passages
+                val relevantContent = extractRelevantContent(question, passages.take(2))
+                
+                if (relevantContent.isNotEmpty()) {
+                    response.append(formatContentAsAnswer(question, relevantContent))
+                    // Track used documents
+                    passages.take(2).forEach { usedDocuments.add(it.documentName) }
+                } else {
+                    // Fallback to using the most relevant passage directly
+                    response.append("Based on your documents, ")
+                    response.append(passages.first().text.trim())
+                    usedDocuments.add(passages.first().documentName)
+                }
+            }
+            
+            // Add source attribution if not already mentioned
+            if (usedDocuments.size == 1) {
+                val docName = usedDocuments.first()
+                if (!response.toString().contains(docName)) {
+                    response.append(" This information is from '$docName'.")
+                }
+            } else if (usedDocuments.size > 1) {
+                val docNames = usedDocuments.take(2).joinToString(" and ")
+                if (!response.toString().contains(docNames)) {
+                    response.append(" This information comes from multiple documents including $docNames.")
+                }
+            }
+            
+            promise.resolve(response.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error creating content-based response: ${e.message}")
+            // Even in error cases, we want to provide a document-based response
+            try {
+                // Extract document names for the fallback response
+                val documentsDir = File(reactApplicationContext.filesDir, "documents")
+                val docCount = documentsDir.listFiles()?.size ?: 0
+                
+                if (docCount > 0) {
+                    val fileNames = documentsDir.listFiles()
+                        ?.filter { it.isFile }
+                        ?.take(3)
+                        ?.joinToString(", ") { it.name } ?: ""
+                    
+                    val response = if (fileNames.isNotEmpty()) {
+                        "AI: I found your documents ($fileNames) but encountered a technical issue while analyzing them. Could you try rephrasing your question?"
+                    } else {
+                        "AI: I have $docCount document(s) but encountered a technical issue while analyzing them. Could you try asking your question differently?"
+                    }
+                    promise.resolve(response)
+                } else {
+                    promise.resolve("AI: I need documents to provide you with information. Please upload some relevant documents first.")
+                }
+            } catch (fallbackError: Exception) {
+                // Last resort fallback that doesn't mention any specific documents
+                promise.resolve("AI: I encountered a technical issue while processing your question. Please try again with a different question.")
+            }
+        }
+    }
+    
+    /**
+     * Extract the main topic from a query
+     */
+    private fun getQueryTopic(question: String): String {
+        val questionLower = question.lowercase()
+        
+        // Common patterns to identify the main topic
+        val whatIsPattern = Regex("what\\s+(?:is|are)\\s+(?:a|an|the)?\\s*([\\w\\s-]+)[\\?\\.]?")
+        val definePattern = Regex("(?:define|definition\\s+of)\\s+(?:a|an|the)?\\s*([\\w\\s-]+)[\\?\\.]?") 
+        val diagnosisPattern = Regex("(?:how\\s+to\\s+diagnose|diagnosis\\s+of|diagnostic\\s+criteria\\s+for)\\s+([\\w\\s-]+)[\\?\\.]?")
+        val treatmentPattern = Regex("(?:treatment|therapy|management|how\\s+to\\s+treat)\\s+(?:of|for)?\\s*([\\w\\s-]+)[\\?\\.]?")
+        val symptomsPattern = Regex("(?:symptoms|signs|clinical\\s+features)\\s+(?:of|for)?\\s*([\\w\\s-]+)[\\?\\.]?")
+        
+        // Check each pattern
+        whatIsPattern.find(questionLower)?.let {
+            return it.groupValues[1].trim()
+        }
+        
+        definePattern.find(questionLower)?.let {
+            return it.groupValues[1].trim()
+        }
+        
+        diagnosisPattern.find(questionLower)?.let {
+            return it.groupValues[1].trim()
+        }
+        
+        treatmentPattern.find(questionLower)?.let {
+            return it.groupValues[1].trim()
+        }
+        
+        symptomsPattern.find(questionLower)?.let {
+            return it.groupValues[1].trim()
+        }
+        
+        // If no pattern matched, extract the key words
+        val words = questionLower
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.length > 3 && !STOPWORDS.contains(it) }
+        
+        // If we have words, use the most frequent
+        if (words.isNotEmpty()) {
+            val wordCounts = words.groupingBy { it }.eachCount()
+            return wordCounts.maxByOrNull { it.value }?.key ?: words.first()
+        }
+        
+        // Fallback to a generic topic
+        return "this topic"
+    }
+    
+    /**
+     * Extract treatment information from passages
+     */
+    private fun extractTreatmentInformation(passages: List<Passage>): String {
+        // Look for treatment-related information
+        val treatmentKeywords = listOf(
+            "treatment", "therapy", "medication", "drug", "approach", 
+            "management", "intervention", "medicine", "therapeutic"
+        )
+        
+        val treatmentSentences = mutableListOf<String>()
+        
+        // Extract sentences containing treatment information
+        passages.forEach { passage ->
+            val sentences = passage.text.split(Regex("(?<=[.!?])\\s+"))
+            
+            sentences.forEach { sentence ->
+                val sentenceLower = sentence.lowercase()
+                if (treatmentKeywords.any { sentenceLower.contains(it) }) {
+                    treatmentSentences.add(sentence.trim())
+                }
+            }
+        }
+        
+        // If we found treatment sentences, use them
+        return if (treatmentSentences.isNotEmpty()) {
+            treatmentSentences.take(3).joinToString(" ")
+        } else {
+            // Fallback to using the first passage text
+            passages.first().text.trim()
+        }
+    }
+    
+    /**
+     * Extract relevant content from passages based on the question
+     */
+    private fun extractRelevantContent(question: String, passages: List<Passage>): List<String> {
+        // Extract keywords from question
+        val keywords = question.lowercase()
+            .split(Regex("\\s+"))
+            .filter { it.length > 3 && !STOPWORDS.contains(it) }
+        
+        if (keywords.isEmpty()) {
+            return emptyList()
+        }
+        
+        val relevantSentences = mutableListOf<String>()
+        
+        // Go through each passage
+        passages.forEach { passage ->
+            // Break into sentences
+            val sentences = passage.text.split(Regex("(?<=[.!?])\\s+"))
+            
+            // Score each sentence by keyword matches
+            val scoredSentences = sentences.map { sentence ->
+                val score = keywords.count { keyword ->
+                    sentence.lowercase().contains(keyword)
+                }
+                Pair(sentence, score)
+            }
+            
+            // Keep sentences that match at least one keyword
+            val matchingSentences = scoredSentences
+                .filter { it.second > 0 }
+                .sortedByDescending { it.second }
+                .take(3)
+                .map { it.first }
+            
+            relevantSentences.addAll(matchingSentences)
+        }
+        
+        return relevantSentences.take(5)
+    }
+    
+    /**
+     * Format extracted content into a coherent answer
+     */
+    private fun formatContentAsAnswer(question: String, relevantContent: List<String>): String {
+        if (relevantContent.isEmpty()) {
+            return "I couldn't find specific information about this in your documents."
+        }
+        
+        // Start with a context-appropriate phrase
+        val questionLower = question.lowercase()
+        val introPhrase = when {
+            questionLower.startsWith("can") || questionLower.startsWith("does") || 
+            questionLower.startsWith("is") || questionLower.startsWith("are") -> 
+                "Based on your documents, "
+            questionLower.startsWith("how") -> 
+                "According to your documents, "
+            questionLower.startsWith("what") -> 
+                "Your documents indicate that "
+            questionLower.startsWith("why") -> 
+                "From your documents, "
+            else -> 
+                "Based on the information in your documents, "
+        }
+        
+        // Build the response
+        val response = StringBuilder(introPhrase)
+        
+        // Add the first sentence directly
+        response.append(relevantContent.first())
+        
+        // Add additional sentences with connecting words if needed
+        if (relevantContent.size > 1) {
+            for (i in 1 until minOf(relevantContent.size, 4)) {
+                val sentence = relevantContent[i]
+                
+                // Skip very similar sentences (over 80% overlap with previous sentences)
+                if (response.toString().lowercase().contains(sentence.lowercase().take(sentence.length * 4 / 5))) {
+                    continue
+                }
+                
+                // Add a connector if needed
+                if (!sentence.startsWith("However") && !sentence.startsWith("Additionally") && 
+                    !sentence.startsWith("Moreover") && !sentence.startsWith("Furthermore")) {
+                    
+                    if (i == 1) {
+                        response.append(" Additionally, ")
+                    } else if (i == 2) {
+                        response.append(" Furthermore, ")
+                    } else {
+                        response.append(" Also, ")
+                    }
+                } else {
+                    response.append(" ")
+                }
+                
+                response.append(sentence)
+            }
+        }
+        
+        return response.toString()
+    }
+
+    /**
+     * Extract the main topic from a question
+     */
+    private fun extractDefinition(text: String, topic: String): String {
+        // Definition patterns to look for
+        val patterns = listOf(
+            "$topic is", "$topic are", "$topic refers to",
+            "defined as", "definition of $topic", "$topic means"
+        )
+        
+        // Fallback - extract the paragraph most likely to contain the definition
+        val paragraphs = text.split("\n\n")
+        return paragraphs.maxByOrNull { para: String ->
+            val paraLower = para.lowercase()
+            val patternScore: Int = patterns.countMatchScore { pattern: String -> 
+                if (paraLower.contains(pattern.lowercase())) 10 else 0
+            }
+            patternScore + (if (paraLower.contains(topic.lowercase())) 5 else 0)
+        }?.take(300) ?: text.take(300) // Fall back to first part of text
     }
 } 
