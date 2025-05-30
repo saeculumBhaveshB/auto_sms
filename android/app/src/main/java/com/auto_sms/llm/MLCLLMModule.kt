@@ -169,52 +169,30 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
     
     /**
      * Fallback answer generation when no model is available
+     * Purely based on document content without any static responses
      */
     private fun fallbackGenerate(question: String, context: String?): String {
-        // Implement a rule-based response generator for when we don't have a real model
-        
         // First try to extract something useful from the context if available
-        val contextResponse = if (!context.isNullOrBlank()) {
-            extractAnswerFromContext(question, context)
-        } else {
-            null
+        if (!context.isNullOrBlank()) {
+            // Always try to generate from document content first
+            val contextResponse = extractAnswerFromContext(question, context)
+            if (contextResponse != null) {
+                return "AI: $contextResponse"
+            }
         }
         
-        // If we found something in the context, use it
-        if (!contextResponse.isNullOrBlank()) {
-            return "AI: $contextResponse"
-        }
-        
-        // Otherwise, provide a generic but helpful response
-        val questionLower = question.lowercase()
-        return when {
-            questionLower.contains("hello") || questionLower.contains("hi ") -> 
-                "AI: Hello! I'm your document assistant. How can I help you today?"
-            
-            questionLower.contains("who are you") || questionLower.contains("what are you") -> 
-                "AI: I'm an AI assistant that can help answer questions about your documents. While I'm currently operating in a basic mode, I can still try to provide helpful information."
-            
-            questionLower.contains("how") && (questionLower.contains("work") || questionLower.contains("use")) -> 
-                "AI: To use me effectively, upload some documents and then ask questions about their content. I'll try to find relevant information to answer your questions."
-            
-            questionLower.contains("document") || questionLower.contains("file") || questionLower.contains("pdf") || questionLower.contains("docx") -> 
-                "AI: I can process documents including text files, PDFs, and DOCX files. If you've uploaded documents, I can try to answer questions about their content."
-            
-            questionLower.contains("hypertension") || questionLower.contains("blood pressure") -> 
-                "AI: Hypertension (high blood pressure) is generally diagnosed when blood pressure readings are consistently 130/80 mm Hg or higher. Treatment typically includes lifestyle changes and possibly medication depending on severity."
-            
-            else -> 
-                "AI: I understand you're asking about \"${question.take(50)}${if (question.length > 50) "..." else ""}\"." +
-                " While I don't have a complete answer right now, I can help analyze your documents for relevant information if you upload some related to this topic."
-        }
+        // If we couldn't find anything in the context, provide a generic response
+        // that doesn't include any domain-specific static information
+        return "AI: I've looked through your documents but couldn't find specific information about your question. Please try rephrasing your question or uploading more relevant documents."
     }
     
     /**
      * Helper method to extract relevant information from the provided context
      */
     private fun extractAnswerFromContext(question: String, context: String): String? {
+        // Get meaningful words from the question (excluding common words)
         val questionWords = question.lowercase().split(" ")
-            .filter { it.length > 3 }
+            .filter { it.length > 3 && !isStopWord(it) }
             .toSet()
         
         if (questionWords.isEmpty()) {
@@ -223,25 +201,127 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         
         // Split context into paragraphs
         val paragraphs = context.split("\n\n", "\r\n\r\n")
-            .filter { it.isNotBlank() }
+            .filter { it.isNotBlank() && it.length > 20 }
         
-        // Find the most relevant paragraph
-        val relevantParagraph = paragraphs.maxByOrNull { paragraph ->
-            questionWords.count { word ->
-                paragraph.lowercase().contains(word)
+        if (paragraphs.isEmpty()) {
+            return null
+        }
+        
+        // Find the most relevant paragraphs based on keyword matching
+        val scoredParagraphs = mutableListOf<Pair<String, Int>>()
+        
+        // Score each paragraph based on how many question words it contains
+        for (paragraph in paragraphs) {
+            var score = 0
+            for (word in questionWords) {
+                if (paragraph.lowercase().contains(word)) {
+                    score += 1
+                }
             }
-        } ?: return null
-        
-        // If the paragraph has at least some relevant words, return it
-        val relevanceScore = questionWords.count { word ->
-            relevantParagraph.lowercase().contains(word)
+            
+            if (score > 0) {
+                scoredParagraphs.add(Pair(paragraph, score))
+            }
         }
         
-        return if (relevanceScore >= 1) {
-            "Based on the information available: $relevantParagraph"
-        } else {
-            null
+        // Sort by score (descending) and take top 2
+        scoredParagraphs.sortByDescending { it.second }
+        val topParagraphs = scoredParagraphs.take(2)
+        
+        if (topParagraphs.isEmpty()) {
+            return null
         }
+        
+        // Process hypertension questions with specific attention
+        if (question.lowercase().contains("hypertension") || question.lowercase().contains("blood pressure")) {
+            // Look for diagnosis-related paragraphs
+            val diagnosisParagraphs = mutableListOf<String>()
+            
+            for (pair in topParagraphs) {
+                val paragraph = pair.first
+                if (paragraph.lowercase().contains("diagnos") || 
+                    paragraph.lowercase().contains("criteria") ||
+                    paragraph.lowercase().contains("mm hg") ||
+                    paragraph.lowercase().contains("stage")) {
+                    
+                    diagnosisParagraphs.add(paragraph)
+                }
+            }
+            
+            if (diagnosisParagraphs.isNotEmpty()) {
+                // Build a coherent answer about hypertension diagnosis
+                return "Based on the medical documents provided, ${diagnosisParagraphs[0]}"
+            }
+            
+            // Look for treatment-related paragraphs
+            val treatmentParagraphs = mutableListOf<String>()
+            
+            for (pair in topParagraphs) {
+                val paragraph = pair.first
+                if (paragraph.lowercase().contains("treat") ||
+                    paragraph.lowercase().contains("medicat") ||
+                    paragraph.lowercase().contains("therapy") ||
+                    paragraph.lowercase().contains("guideline")) {
+                    
+                    treatmentParagraphs.add(paragraph)
+                }
+            }
+            
+            if (treatmentParagraphs.isNotEmpty()) {
+                // Build a coherent answer about hypertension treatment
+                return "According to the treatment information in your documents, ${treatmentParagraphs[0]}"
+            }
+        }
+        
+        // For other types of questions, construct a response from relevant paragraphs
+        val responseBuilder = StringBuilder()
+        
+        // Add an introduction based on the document content
+        responseBuilder.append("Based on analyzing your documents, ")
+        
+        // Add the most relevant paragraph
+        responseBuilder.append(topParagraphs[0].first)
+        
+        // If there's another relevant paragraph with different information, add it
+        if (topParagraphs.size > 1 && !areParargaphsSimilar(topParagraphs[0].first, topParagraphs[1].first)) {
+            responseBuilder.append(" Additionally, ")
+            responseBuilder.append(topParagraphs[1].first)
+        }
+        
+        return responseBuilder.toString()
+    }
+    
+    /**
+     * Check if a word is a common stop word
+     */
+    private fun isStopWord(word: String): Boolean {
+        val stopWords = setOf(
+            "the", "and", "that", "for", "with", "this", "from", "have", "are", "you", 
+            "not", "was", "were", "they", "will", "what", "when", "how", "where", "which", 
+            "who", "whom", "whose", "why", "can", "could", "should", "would", "may", "might",
+            "must", "their", "them", "these", "those", "there", "here"
+        )
+        return stopWords.contains(word)
+    }
+    
+    /**
+     * Check if two paragraphs are similar to avoid redundancy
+     */
+    private fun areParargaphsSimilar(p1: String, p2: String): Boolean {
+        // If one paragraph is substantially contained within the other, they're similar
+        if (p1.length > p2.length * 1.5 && p1.contains(p2)) return true
+        if (p2.length > p1.length * 1.5 && p2.contains(p1)) return true
+        
+        // Count shared words as a similarity measure
+        val words1 = p1.lowercase().split(Regex("\\s+")).filter { it.length > 4 }.toSet()
+        val words2 = p2.lowercase().split(Regex("\\s+")).filter { it.length > 4 }.toSet()
+        
+        if (words1.isEmpty() || words2.isEmpty()) return false
+        
+        val sharedWords = words1.intersect(words2)
+        val similarityRatio = sharedWords.size.toFloat() / Math.min(words1.size, words2.size)
+        
+        return similarityRatio > 0.7 // 70% similarity threshold
     }
     
     /**
