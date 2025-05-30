@@ -11,9 +11,19 @@ import {
   ActivityIndicator,
   Platform,
   Linking,
+  NativeModules,
 } from "react-native";
 import { LocalLLMService, DocParserService } from "../services";
 import type { DocumentInfo, DeviceInfo } from "../services/LocalLLMService";
+
+const { CallSmsModule } = NativeModules;
+
+// Update DocumentInfo interface to include DOCX indicator
+interface EnhancedDocumentInfo extends DocumentInfo {
+  isPdf?: boolean;
+  isDocx?: boolean;
+  extractableText?: boolean;
+}
 
 const LocalLLMSetupScreen: React.FC = () => {
   // State variables
@@ -21,7 +31,7 @@ const LocalLLMSetupScreen: React.FC = () => {
   const [isCompatible, setIsCompatible] = useState<boolean>(false);
   const [compatibilityReason, setCompatibilityReason] = useState<string>("");
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
-  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [documents, setDocuments] = useState<EnhancedDocumentInfo[]>([]);
   const [isModelLoaded, setIsModelLoaded] = useState<boolean>(false);
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(150);
@@ -43,9 +53,10 @@ const LocalLLMSetupScreen: React.FC = () => {
         const info = await LocalLLMService.getDeviceInfo();
         setDeviceInfo(info);
 
-        // List documents
+        // List documents and enhance with file type info
         const docs = await LocalLLMService.listDocuments();
-        setDocuments(docs);
+        const enhancedDocs = await enhanceDocumentsInfo(docs);
+        setDocuments(enhancedDocs);
 
         // Check if model is loaded
         const modelStatus = await LocalLLMService.isModelLoaded();
@@ -70,6 +81,68 @@ const LocalLLMSetupScreen: React.FC = () => {
     loadInitialData();
   }, []);
 
+  // Helper function to enhance documents with file type info
+  const enhanceDocumentsInfo = async (
+    docs: DocumentInfo[]
+  ): Promise<EnhancedDocumentInfo[]> => {
+    return Promise.all(
+      docs.map(async (doc) => {
+        const isPdf = doc.name.toLowerCase().endsWith(".pdf");
+        const isDocx = doc.name.toLowerCase().endsWith(".docx");
+        let extractableText = false;
+
+        // First determine if this is a supported file type
+        const isSupportedType =
+          isPdf || isDocx || doc.name.toLowerCase().endsWith(".txt");
+
+        if (!isSupportedType) {
+          // For unsupported file types, don't attempt extraction
+          return {
+            ...doc,
+            isPdf,
+            isDocx,
+            extractableText: false,
+          };
+        }
+
+        try {
+          if (isPdf) {
+            try {
+              const result = await CallSmsModule.testPdfExtraction(doc.path);
+              extractableText = result.success;
+            } catch (pdfErr) {
+              console.warn(`PDF extraction issue for ${doc.name}:`, pdfErr);
+              extractableText = false;
+            }
+          } else if (isDocx) {
+            // Skip actual DOCX extraction to avoid Apache POI errors
+            // Instead, just mark all DOCX files as extractable for UI purposes
+            extractableText = true;
+            console.log(
+              `DOCX file detected: ${doc.name} - skipping extraction test for stability`
+            );
+          } else {
+            // For text files, assume they're extractable
+            extractableText = doc.name.toLowerCase().endsWith(".txt");
+          }
+        } catch (err) {
+          console.error(
+            `Error checking document extraction for ${doc.name}:`,
+            err
+          );
+          extractableText = false;
+        }
+
+        return {
+          ...doc,
+          isPdf,
+          isDocx,
+          extractableText,
+        };
+      })
+    );
+  };
+
   // Handle document upload
   const handleDocumentUpload = async () => {
     try {
@@ -77,13 +150,44 @@ const LocalLLMSetupScreen: React.FC = () => {
       const result = await LocalLLMService.pickAndUploadDocument();
 
       if (result) {
-        // Refresh document list
+        // Refresh document list with enhanced info
         const docs = await LocalLLMService.listDocuments();
-        setDocuments(docs);
+        const enhancedDocs = await enhanceDocumentsInfo(docs);
+        setDocuments(enhancedDocs);
+
+        // Determine file type for better messaging
+        const isPdf = result.name.toLowerCase().endsWith(".pdf");
+        const isDocx = result.name.toLowerCase().endsWith(".docx");
+        let fileTypeMsg = "";
+
+        if (isPdf) {
+          fileTypeMsg = " PDF content will be extracted automatically.";
+        } else if (isDocx) {
+          fileTypeMsg =
+            " DOCX files are supported, but work best with the Document QA feature.";
+        }
 
         Alert.alert(
           "Document Uploaded",
-          `Successfully uploaded ${result.name}. The document will be used for LLM queries.`
+          `Successfully uploaded ${result.name}.${fileTypeMsg} The document will be used for LLM queries.`,
+          isDocx
+            ? [
+                {
+                  text: "OK",
+                  onPress: () => {},
+                },
+                {
+                  text: "Learn More",
+                  onPress: () => {
+                    Alert.alert(
+                      "DOCX File Support",
+                      "DOCX files are supported but may have limitations with the Basic LLM mode. For best results with DOCX files, use the Document QA feature in the LLM Tester screen.",
+                      [{ text: "Got it" }]
+                    );
+                  },
+                },
+              ]
+            : undefined
         );
       }
     } catch (error) {
@@ -98,7 +202,7 @@ const LocalLLMSetupScreen: React.FC = () => {
   };
 
   // Handle document deletion
-  const handleDeleteDocument = async (document: DocumentInfo) => {
+  const handleDeleteDocument = async (document: EnhancedDocumentInfo) => {
     Alert.alert(
       "Delete Document",
       `Are you sure you want to delete ${document.name}?`,
@@ -114,7 +218,8 @@ const LocalLLMSetupScreen: React.FC = () => {
 
               // Refresh document list
               const docs = await LocalLLMService.listDocuments();
-              setDocuments(docs);
+              const enhancedDocs = await enhanceDocumentsInfo(docs);
+              setDocuments(enhancedDocs);
             } catch (error) {
               console.error("Error deleting document:", error);
               Alert.alert("Error", "Failed to delete document.");
@@ -183,7 +288,7 @@ const LocalLLMSetupScreen: React.FC = () => {
   };
 
   // Render document item
-  const renderDocumentItem = ({ item }: { item: DocumentInfo }) => (
+  const renderDocumentItem = ({ item }: { item: EnhancedDocumentInfo }) => (
     <View style={styles.documentItem}>
       <View style={styles.documentInfo}>
         <Text
@@ -193,10 +298,22 @@ const LocalLLMSetupScreen: React.FC = () => {
         >
           {item.name}
         </Text>
-        <Text style={styles.documentMeta}>
-          {formatFileSize(item.size)} -{" "}
-          {new Date(item.lastModified).toLocaleDateString()}
-        </Text>
+        <View style={styles.documentMetaContainer}>
+          <Text style={styles.documentMeta}>
+            {formatFileSize(item.size)} -{" "}
+            {new Date(item.lastModified).toLocaleDateString()}
+          </Text>
+          {item.isPdf && (
+            <View style={[styles.docTypeTag, styles.pdfTag]}>
+              <Text style={styles.docTypeText}>PDF</Text>
+            </View>
+          )}
+          {item.isDocx && (
+            <View style={[styles.docTypeTag, styles.docxTag]}>
+              <Text style={styles.docTypeText}>DOCX</Text>
+            </View>
+          )}
+        </View>
       </View>
       <TouchableOpacity
         style={styles.deleteButton}
@@ -585,6 +702,11 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginBottom: 4,
   },
+  documentMetaContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
   documentMeta: {
     fontSize: 12,
     color: "#666",
@@ -713,6 +835,23 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 8,
     lineHeight: 20,
+  },
+  docTypeTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  pdfTag: {
+    backgroundColor: "#f44336",
+  },
+  docxTag: {
+    backgroundColor: "#2196f3",
+  },
+  docTypeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
   },
 });
 

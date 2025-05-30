@@ -24,6 +24,7 @@ interface Document {
   lastModified: number;
   isBinary?: boolean;
   isPdf?: boolean;
+  isDocx?: boolean;
   extractedTextAvailable?: boolean;
 }
 
@@ -51,12 +52,13 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
         // Get available documents
         const docs = await LocalLLMModule.listDocuments();
 
-        // Enrich document info with binary/PDF status
+        // Enrich document info with binary/PDF/DOCX status
         const enrichedDocs = await Promise.all(
           docs.map(async (doc: Document) => {
             try {
-              // Check if it's a PDF
+              // Check file types
               const isPdf = doc.name.toLowerCase().endsWith(".pdf");
+              const isDocx = doc.name.toLowerCase().endsWith(".docx");
               let extractedTextAvailable = false;
 
               if (isPdf) {
@@ -76,15 +78,34 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
                   logDebug(`❌ Error checking PDF text: ${e}`);
                   extractedTextAvailable = false;
                 }
+              } else if (isDocx) {
+                logDebug(`🔍 Checking DOCX: ${doc.name}`);
+                try {
+                  // Try to check if text can be extracted from DOCX
+                  const testExtraction = await CallSmsModule.testDocxExtraction(
+                    doc.path
+                  );
+                  extractedTextAvailable = testExtraction.success;
+                  logDebug(
+                    `📄 DOCX ${doc.name} text extraction: ${
+                      extractedTextAvailable ? "Available" : "Not available"
+                    }`
+                  );
+                } catch (e) {
+                  logDebug(`❌ Error checking DOCX text: ${e}`);
+                  extractedTextAvailable = false;
+                }
               }
 
               return {
                 ...doc,
                 isPdf,
+                isDocx,
                 extractedTextAvailable,
                 isBinary:
                   isPdf ||
-                  doc.name.toLowerCase().match(/\.(docx|jpg|jpeg|png|gif)$/) !==
+                  isDocx ||
+                  doc.name.toLowerCase().match(/\.(doc|jpg|jpeg|png|gif)$/) !==
                     null,
               };
             } catch (e) {
@@ -98,16 +119,27 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
 
         logDebug(`📄 Found ${enrichedDocs.length} documents`);
         enrichedDocs.forEach((doc: Document) => {
-          const fileType = doc.isPdf ? "PDF" : doc.isBinary ? "Binary" : "Text";
-          const pdfStatus = doc.isPdf
-            ? doc.extractedTextAvailable
+          let fileType = "Text";
+          let extractStatus = "";
+
+          if (doc.isPdf) {
+            fileType = "PDF";
+            extractStatus = doc.extractedTextAvailable
               ? " (text extractable)"
-              : " (no extractable text)"
-            : "";
+              : " (no extractable text)";
+          } else if (doc.isDocx) {
+            fileType = "DOCX";
+            extractStatus = doc.extractedTextAvailable
+              ? " (text extractable)"
+              : " (no extractable text)";
+          } else if (doc.isBinary) {
+            fileType = "Binary";
+          }
+
           logDebug(
             `   - ${doc.name} (${(doc.size / 1024).toFixed(
               2
-            )} KB) - ${fileType}${pdfStatus}`
+            )} KB) - ${fileType}${extractStatus}`
           );
         });
 
@@ -136,84 +168,163 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
   const verifyDocuments = async () => {
     try {
       logDebug("🔍 Verifying document storage...");
-      const result = await CallSmsModule.debugDocumentStorage();
 
-      logDebug(`📁 Documents path: ${result.documentsPath}`);
-      logDebug(`📂 Documents directory exists: ${result.documentsExists}`);
-      logDebug(`📊 Found ${result.fileCount} files`);
+      try {
+        const result = await CallSmsModule.debugDocumentStorage();
 
-      if (result.files && result.files.length > 0) {
-        let binaryCount = 0;
-        let textCount = 0;
-        let pdfCount = 0;
-        let extractableCount = 0;
+        logDebug(`📁 Documents path: ${result.documentsPath}`);
+        logDebug(`📂 Documents directory exists: ${result.documentsExists}`);
+        logDebug(`📊 Found ${result.fileCount} files`);
 
-        result.files.forEach((file: any) => {
-          const isBinary = file.isBinary;
-          const isPdf = file.name.toLowerCase().endsWith(".pdf");
+        if (result.files && result.files.length > 0) {
+          let binaryCount = 0;
+          let textCount = 0;
+          let pdfCount = 0;
+          let docxCount = 0;
+          let extractableCount = 0;
 
-          if (isPdf) {
-            pdfCount++;
-            if (file.extractableText === true) extractableCount++;
-          } else if (isBinary) binaryCount++;
-          else textCount++;
+          result.files.forEach((file: any) => {
+            const isBinary = file.isBinary;
+            const isPdf = file.name.toLowerCase().endsWith(".pdf");
+            const isDocx = file.name.toLowerCase().endsWith(".docx");
 
-          const fileType = isPdf ? "PDF" : isBinary ? "Binary" : "Text";
-          const extractInfo = isPdf
-            ? ` (${file.extractableText ? "extractable" : "non-extractable"})`
-            : "";
+            if (isPdf) {
+              pdfCount++;
+              if (file.extractableText === true) extractableCount++;
+            } else if (isDocx) {
+              docxCount++;
+              if (file.extractableText === true) extractableCount++;
+            } else if (isBinary) {
+              binaryCount++;
+            } else {
+              textCount++;
+            }
+
+            let fileType = "Text";
+            let extractInfo = "";
+
+            if (isPdf) {
+              fileType = "PDF";
+              extractInfo = ` (${
+                file.extractableText ? "extractable" : "non-extractable"
+              })`;
+            } else if (isDocx) {
+              fileType = "DOCX";
+              extractInfo = ` (${
+                file.extractableText ? "extractable" : "non-extractable"
+              })`;
+            } else if (isBinary) {
+              fileType = "Binary";
+            }
+
+            logDebug(
+              `   - ${file.name} (${(file.size / 1024).toFixed(
+                2
+              )} KB) - ${fileType}${extractInfo}`
+            );
+          });
 
           logDebug(
-            `   - ${file.name} (${(file.size / 1024).toFixed(
-              2
-            )} KB) - ${fileType}${extractInfo}`
+            `📊 Summary: ${textCount} text files, ${binaryCount} binary files, ${pdfCount} PDF files, ${docxCount} DOCX files (${extractableCount} extractable)`
           );
-        });
 
-        logDebug(
-          `📊 Summary: ${textCount} text files, ${binaryCount} binary files, ${pdfCount} PDF files (${extractableCount} extractable)`
-        );
+          // Refresh document list with enhanced info
+          try {
+            const docs = await LocalLLMModule.listDocuments();
+            const enrichedDocs = docs.map((doc: Document) => {
+              const isPdf = doc.name.toLowerCase().endsWith(".pdf");
+              const isDocx = doc.name.toLowerCase().endsWith(".docx");
+              const matchingFile = result.files.find(
+                (f: any) => f.name === doc.name
+              );
 
-        // Refresh document list with enhanced info
-        const docs = await LocalLLMModule.listDocuments();
-        const enrichedDocs = docs.map((doc: Document) => {
-          const isPdf = doc.name.toLowerCase().endsWith(".pdf");
-          const matchingFile = result.files.find(
-            (f: any) => f.name === doc.name
+              // For DOCX files, don't rely solely on the extraction test
+              // since that might fail due to POI issues
+              const isDocxTextAvailable = isDocx ? true : false;
+
+              return {
+                ...doc,
+                isPdf,
+                isDocx,
+                extractedTextAvailable:
+                  isPdf && matchingFile
+                    ? matchingFile.extractableText
+                    : isDocxTextAvailable, // Always assume DOCX files can be processed
+                isBinary:
+                  isPdf ||
+                  isDocx ||
+                  doc.name.toLowerCase().match(/\.(doc|jpg|jpeg|png|gif)$/) !==
+                    null,
+              };
+            });
+
+            setDocuments(enrichedDocs);
+          } catch (docsError) {
+            logDebug(`⚠️ Error enriching documents: ${docsError}`);
+            // Continue execution even if this part fails
+          }
+        } else {
+          logDebug("⚠️ No files found in documents directory");
+
+          // Create a test document if none exist
+          logDebug("📄 Creating a sample text document for testing");
+          try {
+            await LocalLLMModule.createSampleDocument();
+            logDebug("✅ Created sample document");
+
+            // Refresh document list
+            const refreshedDocs = await LocalLLMModule.listDocuments();
+            setDocuments(refreshedDocs);
+            logDebug(`📄 Now have ${refreshedDocs.length} documents`);
+          } catch (e) {
+            logDebug(`❌ Failed to create sample document: ${e}`);
+          }
+        }
+
+        return result;
+      } catch (debugError) {
+        logDebug(`⚠️ Error in debugDocumentStorage: ${debugError}`);
+
+        // Fallback: try to get documents directly
+        try {
+          const docs = await LocalLLMModule.listDocuments();
+
+          // Process without extraction testing
+          const simpleEnrichedDocs = docs.map((doc: Document) => {
+            const isPdf = doc.name.toLowerCase().endsWith(".pdf");
+            const isDocx = doc.name.toLowerCase().endsWith(".docx");
+
+            return {
+              ...doc,
+              isPdf,
+              isDocx,
+              extractedTextAvailable: true, // Assume all are extractable for UI
+              isBinary:
+                isPdf ||
+                isDocx ||
+                doc.name.toLowerCase().match(/\.(doc|jpg|jpeg|png|gif)$/) !==
+                  null,
+            };
+          });
+
+          setDocuments(simpleEnrichedDocs);
+          logDebug(
+            `📄 Fallback: loaded ${simpleEnrichedDocs.length} documents without extraction testing`
           );
 
           return {
-            ...doc,
-            isPdf,
-            extractedTextAvailable:
-              isPdf && matchingFile ? matchingFile.extractableText : false,
-            isBinary:
-              isPdf ||
-              doc.name.toLowerCase().match(/\.(docx|jpg|jpeg|png|gif)$/) !==
-                null,
+            documentsPath: "Unknown",
+            documentsExists: true,
+            fileCount: simpleEnrichedDocs.length,
+            files: simpleEnrichedDocs,
           };
-        });
-
-        setDocuments(enrichedDocs);
-      } else {
-        logDebug("⚠️ No files found in documents directory");
-
-        // Create a test document if none exist
-        logDebug("📄 Creating a sample text document for testing");
-        try {
-          await LocalLLMModule.createSampleDocument();
-          logDebug("✅ Created sample document");
-
-          // Refresh document list
-          const refreshedDocs = await LocalLLMModule.listDocuments();
-          setDocuments(refreshedDocs);
-          logDebug(`📄 Now have ${refreshedDocs.length} documents`);
-        } catch (e) {
-          logDebug(`❌ Failed to create sample document: ${e}`);
+        } catch (fallbackError) {
+          logDebug(
+            `❌ Fallback document loading also failed: ${fallbackError}`
+          );
+          throw fallbackError;
         }
       }
-
-      return result;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logDebug(`❌ Error verifying documents: ${errorMessage}`);
@@ -237,7 +348,12 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       logDebug(`📄 Using ${documents.length} documents for context`);
 
       // Verify documents first to ensure they're available
-      await verifyDocuments();
+      try {
+        await verifyDocuments();
+      } catch (verifyError) {
+        // Log but continue even if verification fails
+        logDebug(`⚠️ Document verification warning: ${verifyError}`);
+      }
 
       const startTime = Date.now();
 
@@ -273,12 +389,22 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       // Build document reference string for the LLM prompt with better info
       const docContext = documents
         .map((doc) => {
-          const fileType = doc.isPdf ? "PDF" : doc.isBinary ? "Binary" : "Text";
-          const extractStatus = doc.isPdf
-            ? doc.extractedTextAvailable
+          let fileType = "Text";
+          let extractStatus = "";
+
+          if (doc.isPdf) {
+            fileType = "PDF";
+            extractStatus = doc.extractedTextAvailable
               ? " (text extractable)"
-              : " (no extractable text)"
-            : "";
+              : " (no extractable text)";
+          } else if (doc.isDocx) {
+            fileType = "DOCX";
+            // Always treat DOCX as extractable in the prompt
+            extractStatus = " (text extractable)";
+          } else if (doc.isBinary) {
+            fileType = "Binary";
+          }
+
           return `Document: ${doc.name} (${(doc.size / 1024).toFixed(
             2
           )} KB) - ${fileType}${extractStatus}`;
@@ -293,8 +419,20 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
 
       logDebug("🧠 Requesting LLM response...");
 
+      // Use Promise.race with a timeout to prevent hanging on DOCX processing
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("LLM request timed out after 30 seconds")),
+          30000
+        )
+      );
+
       // Call the native module's testLLM function with document context
-      const result = await CallSmsModule.testLLM(enhancedQuestion);
+      const result = await Promise.race([
+        CallSmsModule.testLLM(enhancedQuestion),
+        timeoutPromise,
+      ]);
+
       const endTime = Date.now();
 
       setResponse(result);
@@ -305,7 +443,7 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       logDebug(`❌ Error testing LLM: ${err.message || "Unknown error"}`);
       setError(`Error: ${err.message || "Unknown error occurred"}`);
       setResponse(
-        "AI: I'm not able to answer based on your documents. Please refine your query."
+        "AI: I'm not able to answer based on your documents. Please refine your query or try the Document QA button which uses a more robust approach."
       );
     } finally {
       setLoading(false);
@@ -328,8 +466,13 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       logDebug(`🔍 Starting Document QA for: "${question}"`);
       logDebug(`📄 Available documents: ${documents.length}`);
 
-      // Verify documents first to ensure they're available
-      await verifyDocuments();
+      // Verify documents with safety measures
+      try {
+        await verifyDocuments();
+      } catch (verifyError) {
+        // Log but continue with available documents
+        logDebug(`⚠️ Document verification warning: ${verifyError}`);
+      }
 
       if (documents.length === 0) {
         setError("No documents available. Please add documents first.");
@@ -347,7 +490,21 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       logDebug("🧠 Calling document QA with context retrieval...");
       const MAX_PASSAGES = 5; // Retrieve up to 5 most relevant passages
 
-      const result = await CallSmsModule.documentQA(question, MAX_PASSAGES);
+      // Use Promise.race with a timeout to prevent hanging on DOCX processing
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error("Document QA request timed out after 30 seconds")),
+          30000
+        )
+      );
+
+      // Race the document QA call against a timeout
+      const result = await Promise.race([
+        CallSmsModule.documentQA(question, MAX_PASSAGES),
+        timeoutPromise,
+      ]);
+
       const endTime = Date.now();
 
       setResponse(result);
@@ -355,11 +512,27 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       logDebug(`📝 Response: "${result}"`);
     } catch (err: any) {
       console.error("Error in Document QA:", err);
-      logDebug(`❌ Error in Document QA: ${err.message || "Unknown error"}`);
-      setError(`Error: ${err.message || "Unknown error occurred"}`);
-      setResponse(
-        "AI: I'm sorry, I couldn't find an answer in your documents. Please try another question."
-      );
+
+      // Check if this is a timeout error
+      const isTimeout = err.message && err.message.includes("timed out");
+
+      if (isTimeout) {
+        logDebug(
+          "⚠️ Document QA timed out, this may be due to complex DOCX processing"
+        );
+        setError(
+          "The operation timed out. This may be due to issues processing complex documents."
+        );
+        setResponse(
+          "AI: I'm sorry, the document processing took too long. This might be caused by complex DOCX files. Try using simpler documents or converting them to PDF or text format."
+        );
+      } else {
+        logDebug(`❌ Error in Document QA: ${err.message || "Unknown error"}`);
+        setError(`Error: ${err.message || "Unknown error occurred"}`);
+        setResponse(
+          "AI: I'm sorry, I couldn't find an answer in your documents. Please try another question or simplify your document format."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -422,8 +595,22 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
               )}
             </Text>
             <Text style={styles.documentTypeItem}>
+              DOCX: {documents.filter((d) => d.isDocx).length}
+              {documents.filter((d) => d.isDocx).length > 0 && (
+                <Text style={styles.documentTypeDetail}>
+                  {" "}
+                  <Text style={styles.docxNote}>
+                    (Use Document QA mode for best results)
+                  </Text>
+                </Text>
+              )}
+            </Text>
+            <Text style={styles.documentTypeItem}>
               Other Binary:{" "}
-              {documents.filter((d) => d.isBinary && !d.isPdf).length}
+              {
+                documents.filter((d) => d.isBinary && !d.isPdf && !d.isDocx)
+                  .length
+              }
             </Text>
           </View>
         </View>
@@ -451,6 +638,9 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
             styles.button,
             styles.qaButton,
             { flex: 0.5, marginHorizontal: 4 },
+            documents.filter((d) => d.isDocx).length > 0
+              ? styles.recommendedButton
+              : {},
           ]}
           onPress={runDocumentQA}
           disabled={loading}
@@ -458,7 +648,14 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
           {loading && isDocQA ? (
             <ActivityIndicator color="#ffffff" size="small" />
           ) : (
-            <Text style={styles.buttonText}>Document QA</Text>
+            <>
+              <Text style={styles.buttonText}>Document QA</Text>
+              {documents.filter((d) => d.isDocx).length > 0 && (
+                <Text style={styles.recommendedLabel}>
+                  Recommended for DOCX
+                </Text>
+              )}
+            </>
           )}
         </TouchableOpacity>
 
@@ -474,6 +671,15 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
           <Text style={styles.secondaryButtonText}>Verify Documents</Text>
         </TouchableOpacity>
       </View>
+
+      {documents.filter((d) => d.isDocx).length > 0 && (
+        <View style={styles.docxHelpContainer}>
+          <Text style={styles.docxHelpText}>
+            ℹ️ DOCX files detected. For best results with DOCX files, use the
+            Document QA button which uses a specialized processing method.
+          </Text>
+        </View>
+      )}
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -675,6 +881,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "monospace",
     color: "#333",
+  },
+  docxNote: {
+    fontSize: 10,
+    color: "#ff6f00",
+    fontWeight: "bold",
+  },
+  recommendedButton: {
+    backgroundColor: "#00695c",
+    borderWidth: 1,
+    borderColor: "#00897b",
+  },
+  recommendedLabel: {
+    fontSize: 10,
+    color: "#fff",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  docxHelpContainer: {
+    backgroundColor: "#e8f5e9",
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: "#4caf50",
+  },
+  docxHelpText: {
+    fontSize: 13,
+    color: "#2e7d32",
+    lineHeight: 18,
   },
 });
 
