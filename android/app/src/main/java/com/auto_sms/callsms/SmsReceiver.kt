@@ -1751,7 +1751,7 @@ class SmsReceiver : BroadcastReceiver() {
             }
             
             val lowerQuestion = question.lowercase()
-            val responseBuilder = StringBuilder("Based on your documents, ")
+            val responseBuilder = StringBuilder(" ")
             
             // Check if question contains certain keywords to tailor the response
             when {

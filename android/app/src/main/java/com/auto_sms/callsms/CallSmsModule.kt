@@ -1245,7 +1245,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                             
                             if (relevantSentences.isNotEmpty()) {
                                 // Construct a helpful response using the extracted content
-                                val response = StringBuilder("AI: Based on your documents, I found: ")
+                                val response = StringBuilder("AI: ")
                                 relevantSentences.forEach { sentence ->
                                     response.append(sentence.trim())
                                     if (!sentence.trim().endsWith(".")) response.append(".")
@@ -1256,7 +1256,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                 val sourceDoc = documentContentMap.entries
                                     .firstOrNull { (_, content) -> content.contains(topPassage) }?.key ?: "your documents"
                                 
-                                response.append("This information is from $sourceDoc.")
                                 promise.resolve(response.toString())
                             } else {
                                 // If we couldn't find relevant sentences, use document names
@@ -2569,7 +2568,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 } else {
                     // Use the most relevant passage
                     val bestPassage = passages.first()
-                    response.append("Based on your documents, ")
                     response.append(extractDefinitionSection(bestPassage.text, topic))
                     usedDocuments.add(bestPassage.documentName)
                 }
@@ -2596,7 +2594,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 } else {
                     // Use the most relevant passage
                     val bestPassage = passages.first()
-                    response.append("Based on your documents, ")
                     response.append(extractCriteriaSection(bestPassage.text, topic))
                     usedDocuments.add(bestPassage.documentName)
                 }
@@ -2620,7 +2617,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     passages.take(2).forEach { usedDocuments.add(it.documentName) }
                 } else {
                     // Fallback to using the most relevant passage directly
-                    response.append("Based on your documents, ")
                     response.append(passages.first().text.trim())
                     usedDocuments.add(passages.first().documentName)
                 }
@@ -2629,9 +2625,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             // Add source attribution if not already mentioned
             if (usedDocuments.size == 1) {
                 val docName = usedDocuments.first()
-                if (!response.toString().contains(docName)) {
-                    response.append(" This information is from '$docName'.")
-                }
+                
             } else if (usedDocuments.size > 1) {
                 val docNames = usedDocuments.take(2).joinToString(" and ")
                 if (!response.toString().contains(docNames)) {
@@ -2806,8 +2800,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         val questionLower = question.lowercase()
         val introPhrase = when {
             questionLower.startsWith("can") || questionLower.startsWith("does") || 
-            questionLower.startsWith("is") || questionLower.startsWith("are") -> 
-                "Based on your documents, "
+            questionLower.startsWith("is") || 
             questionLower.startsWith("how") -> 
                 "According to your documents, "
             questionLower.startsWith("what") -> 

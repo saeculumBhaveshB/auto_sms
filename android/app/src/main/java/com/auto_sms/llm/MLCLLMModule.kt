@@ -266,9 +266,7 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                         // Construct a response based on question type
                         val response = StringBuilder()
                         
-                        if (isDefinitionQuestion) {
-                            response.append("Based on your documents, ")
-                            
+                        if (isDefinitionQuestion) {    
                             // Try to find a definition-like sentence
                             val definitionSentence = findDefinitionSentence(relevantParagraphs, keywords)
                             if (definitionSentence != null) {

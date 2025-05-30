@@ -30,7 +30,7 @@ interface Document {
 
 const LLMTester: React.FC<LLMTesterProps> = () => {
   const [question, setQuestion] = useState<string>(
-    "What are the diagnostic criteria for hypertension?"
+    "How do β-lactam antibiotics work?"
   );
   const [response, setResponse] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
