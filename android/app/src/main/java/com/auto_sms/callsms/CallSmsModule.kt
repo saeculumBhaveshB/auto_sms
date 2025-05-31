@@ -1252,11 +1252,13 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                     response.append(" ")
                                 }
                                 
-                                // Add source document reference
-                                val sourceDoc = documentContentMap.entries
-                                    .firstOrNull { (_, content) -> content.contains(topPassage) }?.key ?: "your documents"
+                                // Strip out any document metadata tags
+                                var cleanedResponse = response.toString()
+                                cleanedResponse = cleanedResponse.replace(Regex("Document \\d+: [^\n]+\n"), "")
+                                cleanedResponse = cleanedResponse.replace(Regex("Title: [^\n]+\n"), "")
+                                cleanedResponse = cleanedResponse.replace(Regex("Content: \\s*\n"), "")
                                 
-                                promise.resolve(response.toString())
+                                promise.resolve(cleanedResponse)
                             } else {
                                 // If we couldn't find relevant sentences, use document names
                                 val documentNames = documentContentMap.keys.take(3).joinToString(", ")
@@ -1368,19 +1370,23 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Build a prompt that includes document content for the LLM
+     * Build a prompt with documents for the LLM
      */
     private fun buildPromptWithDocuments(question: String, documents: Map<String, String>): String {
         val sb = StringBuilder()
         
-        // Add instruction for the LLM
-        sb.append("You are an AI assistant answering questions based on the user's documents.\n\n")
+        // Add system instruction for the LLM
+        sb.append("You are a helpful AI assistant that answers questions based on the provided documents. ")
+        sb.append("Answer only based on the information available in the documents. ")
+        sb.append("Do not include document names, titles, or metadata in your response. ")
+        sb.append("Focus only on the direct content that answers the question. ")
+        sb.append("Be concise but thorough in your answers.\n\n")
         
-        // Add document content
         sb.append("Here are the documents for context:\n\n")
         
         documents.entries.forEachIndexed { index, (name, content) ->
-            sb.append("Document ${index + 1}: $name\n")
+            // Don't include document number in the prompt
+            sb.append("Document content:\n")
             
             // Trim very long documents to avoid context window issues
             val maxContentLength = 2000
@@ -1400,7 +1406,10 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         sb.append("\n\n")
         
         // Add formatting instructions
-        sb.append("Please provide a comprehensive answer based only on the information in the documents. If the documents don't contain relevant information to answer the question, say so clearly. Start your response with 'AI: '")
+        sb.append("Please provide a concise answer based only on the information in the documents. ")
+        sb.append("Do not include document references or metadata in your answer. ")
+        sb.append("Just provide the direct information that answers the question. ")
+        sb.append("Start your response with 'AI: '")
         
         return sb.toString()
     }
@@ -2441,7 +2450,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         sb.append("Here are relevant passages from the documents:\n\n")
         
         passages.forEachIndexed { index, passage ->
-            sb.append("Passage ${index + 1} from '${passage.documentName}':\n")
+            // Don't include document name in the prompt
+            sb.append("Passage ${index + 1}:\n")
             sb.append(passage.text.trim())
             sb.append("\n\n")
         }
@@ -2489,6 +2499,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         // Add formatting instructions
         sb.append("Answer: ")
         
+        // Add specific instructions for clean responses
+        sb.append("Provide only the direct information from the passages that answers the question. ")
+        sb.append("Do not mention document names, do not add phrases like 'Based on your documents' or 'According to the documents'. ")
+        sb.append("Do not include metadata like document titles or references. ")
+        sb.append("Start your response with 'AI: ' and then immediately provide the relevant information.")
+        
         return sb.toString()
     }
 
@@ -2505,20 +2521,10 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 val documentsDir = File(reactApplicationContext.filesDir, "documents")
                 if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
                     // We have documents but couldn't find relevant passages
-                    val documentNames = documentsDir.listFiles()
-                        ?.filter { it.isFile }
-                        ?.take(3)
-                        ?.joinToString(", ") { it.name } ?: ""
-                    
-                    val response = if (documentNames.isNotEmpty()) {
-                        "AI: I've examined your documents ($documentNames) but couldn't find specific information about ${getQueryTopic(question)}. Consider uploading additional documents that cover this topic."
-                    } else {
-                        "AI: I've examined your documents but couldn't find information about ${getQueryTopic(question)}. Try asking about different topics in your documents."
-                    }
-                    promise.resolve(response)
+                    promise.resolve("AI: I couldn't find specific information about ${getQueryTopic(question)} in your documents.")
                 } else {
                     // No documents available
-                    promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first, then I can provide information based on their content.")
+                    promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first.")
                 }
                 return
             }
@@ -2588,7 +2594,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 }
                 
                 if (criteriaPassage != null) {
-                    response.append("According to the diagnostic information in your documents, ")
                     response.append(extractCriteriaSection(criteriaPassage.text, topic))
                     usedDocuments.add(criteriaPassage.documentName)
                 } else {
@@ -2599,8 +2604,6 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 }
             } else if (isTreatmentQuestion) {
                 // Handle treatment questions
-                response.append("According to your documents, treatment approaches include: ")
-                
                 // Extract treatment information from top passages
                 val treatmentInfo = extractTreatmentInformation(passages.take(2))
                 response.append(treatmentInfo)
@@ -2622,44 +2625,24 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 }
             }
             
-            // Add source attribution if not already mentioned
-            if (usedDocuments.size == 1) {
-                val docName = usedDocuments.first()
-                
-            } else if (usedDocuments.size > 1) {
-                val docNames = usedDocuments.take(2).joinToString(" and ")
-                if (!response.toString().contains(docNames)) {
-                    response.append(" This information comes from multiple documents including $docNames.")
-                }
-            }
+            // Clean up response - strip out document references and metadata
+            var cleanedResponse = response.toString()
+            cleanedResponse = cleanedResponse.replace(Regex("Document \\d+: [^\n]+\n"), "")
+            cleanedResponse = cleanedResponse.replace(Regex("Title: [^\n]+\n"), "")
+            cleanedResponse = cleanedResponse.replace(Regex("Content: \\s*\n"), "")
             
-            promise.resolve(response.toString())
+            // Remove document attribution
+            usedDocuments.clear()
+            
+            promise.resolve(cleanedResponse)
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error creating content-based response: ${e.message}")
             // Even in error cases, we want to provide a document-based response
             try {
-                // Extract document names for the fallback response
-                val documentsDir = File(reactApplicationContext.filesDir, "documents")
-                val docCount = documentsDir.listFiles()?.size ?: 0
-                
-                if (docCount > 0) {
-                    val fileNames = documentsDir.listFiles()
-                        ?.filter { it.isFile }
-                        ?.take(3)
-                        ?.joinToString(", ") { it.name } ?: ""
-                    
-                    val response = if (fileNames.isNotEmpty()) {
-                        "AI: I found your documents ($fileNames) but encountered a technical issue while analyzing them. Could you try rephrasing your question?"
-                    } else {
-                        "AI: I have $docCount document(s) but encountered a technical issue while analyzing them. Could you try asking your question differently?"
-                    }
-                    promise.resolve(response)
-                } else {
-                    promise.resolve("AI: I need documents to provide you with information. Please upload some relevant documents first.")
-                }
+                promise.resolve("AI: I encountered a technical issue while processing your question. Please try again.")
             } catch (fallbackError: Exception) {
-                // Last resort fallback that doesn't mention any specific documents
-                promise.resolve("AI: I encountered a technical issue while processing your question. Please try again with a different question.")
+                // Last resort fallback
+                promise.resolve("AI: I encountered a technical issue. Please try again with a different question.")
             }
         }
     }
