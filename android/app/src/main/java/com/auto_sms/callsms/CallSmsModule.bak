@@ -8694,7 +8694,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             
             if (documentsWithText.isEmpty()) {
                 Log.e(TAG, "❌ No documents available for Q&A")
-                promise.resolve("AI: I'm sorry, I couldn't find any documents to help answer your question.")
+                promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
                 return
             }
             
@@ -8723,11 +8723,11 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 promise.resolve(formattedAnswer)
             } else {
                 // Fallback for failed LLM response
-                promise.resolve("AI: I'm sorry, I couldn't find information about this in your documents. Please try asking a different question.")
+               promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in document Q&A: ${e.message}", e)
-            promise.resolve("AI: Sorry, I'm not available right now due to a technical issue.")
+            promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
         }
     }
     
