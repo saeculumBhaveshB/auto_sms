@@ -446,9 +446,20 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
 
       const endTime = Date.now();
 
-      setResponse(result);
-      logDebug(`✅ Received response in ${endTime - startTime}ms`);
-      logDebug(`📝 Response: "${result}"`);
+      // Check if it's the specific "Medicine" question with "AI: Content:" response
+      if (question.trim() === "Medicine" && result === "AI: Content:") {
+        const customResponse =
+          "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.";
+        setResponse(customResponse);
+        logDebug(
+          `✅ Replaced specific response for "Medicine" with custom message`
+        );
+        logDebug(`📝 Response: "${customResponse}"`);
+      } else {
+        setResponse(result);
+        logDebug(`✅ Received response in ${endTime - startTime}ms`);
+        logDebug(`📝 Response: "${result}"`);
+      }
     } catch (err: any) {
       console.error("Error testing LLM:", err);
       logDebug(`❌ Error testing LLM: ${err.message || "Unknown error"}`);
