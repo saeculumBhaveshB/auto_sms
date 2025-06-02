@@ -1278,14 +1278,14 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                 
                                 if (possiblyRelevantDocs.isNotEmpty()) {
                                     val relevantDocNames = possiblyRelevantDocs.joinToString(", ")
-                                    promise.resolve("AI: I analyzed your documents ($documentCountText) and found that '$relevantDocNames' might contain information related to your question, but I couldn't extract a specific answer about '${question.take(30)}${if (question.length > 30) "..." else ""}'.")
+                                    promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.")                                    
                                 } else {
-                                    promise.resolve("AI: I've examined your documents ($documentCountText) but couldn't find specific information about '${question.take(30)}${if (question.length > 30) "..." else ""}'. Try asking about topics covered in your documents.")
+                                   promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
                                 }
                             }
                         } else {
                             // Generic response when no relevant content found
-                            promise.resolve("AI: I've looked through your documents but couldn't find specific information related to your question. Please try asking about topics covered in your documents.")
+                            promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
                         }
                     }
                     return
@@ -2785,13 +2785,13 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             questionLower.startsWith("can") || questionLower.startsWith("does") || 
             questionLower.startsWith("is") || 
             questionLower.startsWith("how") -> 
-                "According to your documents, "
+                ""
             questionLower.startsWith("what") -> 
-                "Your documents indicate that "
+                ""
             questionLower.startsWith("why") -> 
-                "From your documents, "
+                " "
             else -> 
-                "Based on the information in your documents, "
+                ""
         }
         
         // Build the response
