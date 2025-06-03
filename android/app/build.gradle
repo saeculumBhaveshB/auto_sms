@@ -181,6 +181,9 @@ dependencies {
     // PDFBox for PDF text extraction
     implementation("com.tom-roush:pdfbox-android:2.0.25.0")
     
+    // Networking dependencies
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
     // llama.cpp dependencies
     implementation(fileTree(dir: "libs", include: ["*.jar", "*.aar"]))
 }

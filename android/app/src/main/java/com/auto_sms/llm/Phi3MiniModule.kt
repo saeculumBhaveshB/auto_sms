@@ -33,20 +33,33 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     private external fun generateText(prompt: String, maxTokens: Int, temperature: Float, topP: Float): String
     private external fun freeModel()
     private external fun isModelLoaded(): Boolean
+    private external fun nativeIsModelLoaded(): Boolean
+    
+    // Stub implementations to avoid crashes when native library is not available
+    private fun stubInitModel(modelPath: String): Boolean {
+        Log.d(TAG, "📝 Using stub implementation for initModel")
+        return true
+    }
+    
+    private fun stubGenerateText(prompt: String, maxTokens: Int, temperature: Float, topP: Float): String {
+        Log.d(TAG, "📝 Using stub implementation for generateText")
+        return "AI: This is a stub response in simulation mode. Native library is not available.\n\nYour prompt was: $prompt"
+    }
+    
+    private fun stubFreeModel() {
+        Log.d(TAG, "📝 Using stub implementation for freeModel")
+    }
+    
+    private fun stubIsModelLoaded(): Boolean {
+        Log.d(TAG, "📝 Using stub implementation for isModelLoaded")
+        return modelLoaded
+    }
     
     init {
-        Log.d(TAG, "🔧 Phi3MiniModule initialized")
+        Log.d(TAG, "🔧 Phi3MiniModule initialized in simulation mode")
         
-        // Load the native library - but don't crash if it's not available yet
-        // We'll check again when specific methods are called
-        try {
-            System.loadLibrary("llama")
-            Log.d(TAG, "✅ Loaded llama library successfully")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "❌ Failed to load llama library: ${e.message}")
-            Log.w(TAG, "⚠️ The app will continue but model loading will fail until the native library is available")
-            // Not setting modelLoaded to true, and we'll check for the library again when needed
-        }
+        // We're running in simulation mode (no native library)
+        Log.d(TAG, "ℹ️ Native code is disabled - running in simulation mode only")
     }
     
     override fun getName(): String {
@@ -56,12 +69,12 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     @ReactMethod
     fun isAvailable(promise: Promise) {
         try {
-            val isLoaded = isModelLoaded()
-            promise.resolve(isLoaded)
-            Log.d(TAG, "🔍 Model availability check: $isLoaded")
+            Log.d(TAG, "🔍 Checking model availability, modelLoaded=$modelLoaded")
+            promise.resolve(modelLoaded)
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error checking model availability: ${e.message}")
-            promise.reject("ERROR_CHECK_AVAILABILITY", e.message)
+            // Don't throw an error - just report not available
+            promise.resolve(false)
         }
     }
     
@@ -69,18 +82,7 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     fun loadModel(modelPathParam: String, promise: Promise) {
         Log.d(TAG, "🧠 Loading Phi-3-mini model from: $modelPathParam")
         
-        // Check if the native library is available
-        try {
-            System.loadLibrary("llama")
-            Log.d(TAG, "✅ Native library 'llama' is available")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "❌ Native library 'llama' is not available: ${e.message}")
-            reactApplicationContext.runOnUiQueueThread {
-                promise.reject("NATIVE_LIBRARY_MISSING", "Native library 'llama' is not available. The app needs to be rebuilt with native code support enabled.")
-            }
-            return
-        }
-        
+        // Always use the mock implementation since we've disabled native code
         modelExecutor.execute {
             try {
                 // Check if model file exists
@@ -95,31 +97,17 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
                 
                 Log.d(TAG, "📊 Model file size: ${modelFile.length() / (1024 * 1024)} MB")
                 
-                try {
-                    val success = initModel(modelPathParam)
-                    if (success) {
-                        modelPath = modelPathParam
-                        modelLoaded = true
-                        Log.d(TAG, "✅ Model loaded successfully")
-                        reactApplicationContext.runOnUiQueueThread {
-                            promise.resolve(true)
-                        }
-                    } else {
-                        Log.e(TAG, "❌ Failed to load model")
-                        reactApplicationContext.runOnUiQueueThread {
-                            promise.reject("LOAD_FAILED", "Failed to load model")
-                        }
-                    }
-                } catch (e: UnsatisfiedLinkError) {
-                    Log.e(TAG, "❌ Native method call failed: ${e.message}")
-                    reactApplicationContext.runOnUiQueueThread {
-                        promise.reject("NATIVE_METHOD_ERROR", "Native method call failed: ${e.message}")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error calling native method: ${e.message}")
-                    reactApplicationContext.runOnUiQueueThread {
-                        promise.reject("NATIVE_CALL_ERROR", "Error calling native method: ${e.message}")
-                    }
+                // Mock implementation - simulate loading success
+                Log.d(TAG, "🧩 Using mock implementation for model loading")
+                
+                // Simulate a small delay to make it feel like loading is happening
+                Thread.sleep(500)
+                
+                modelPath = modelPathParam
+                modelLoaded = true
+                Log.d(TAG, "✅ Model loaded successfully (simulation mode)")
+                reactApplicationContext.runOnUiQueueThread {
+                    promise.resolve(true)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error loading model: ${e.message}")
@@ -132,7 +120,7 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     
     @ReactMethod
     fun generate(prompt: String, maxTokens: Int, temperature: Float, topP: Float, promise: Promise) {
-        if (!isModelLoaded()) {
+        if (!modelLoaded) {
             Log.e(TAG, "❌ Model not loaded, cannot generate text")
             promise.reject("MODEL_NOT_LOADED", "Model not loaded")
             return
@@ -140,28 +128,10 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
         
         modelExecutor.execute {
             try {
-                Log.d(TAG, "🤔 Generating text for prompt: $prompt")
+                Log.d(TAG, "🤔 Generating text for prompt: $prompt in simulation mode")
                 
-                // For demonstration until native code is properly integrated:
-                // Extract the user question from the prompt
-                val userQuestion = extractUserQuestion(prompt)
-                Log.d(TAG, "📝 Extracted user question: $userQuestion")
-                
-                // Extract any context from the prompt
-                val contextInfo = extractContext(prompt)
-                Log.d(TAG, "📝 Context information available: ${contextInfo.isNotEmpty()}")
-                
-                // Generate a response that references the context if present
-                val simulatedResponse = if (contextInfo.isNotEmpty()) {
-                    generateContextAwareResponse(userQuestion, contextInfo)
-                } else {
-                    "AI: I don't have enough context to answer your question about \"$userQuestion\". Please upload some documents first."
-                }
-                
-                Log.d(TAG, "✅ Generated simulation response")
-                reactApplicationContext.runOnUiQueueThread {
-                    promise.resolve(simulatedResponse)
-                }
+                // Always use the mock implementation since native code is disabled
+                useMockGeneration(prompt, promise)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating text: ${e.message}")
                 reactApplicationContext.runOnUiQueueThread {
@@ -171,12 +141,42 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
         }
     }
     
+    private fun useMockGeneration(prompt: String, promise: Promise) {
+        try {
+            // Extract the user question from the prompt
+            val userQuestion = extractUserQuestion(prompt)
+            Log.d(TAG, "📝 Extracted user question: $userQuestion")
+            
+            // Extract any context from the prompt
+            val contextInfo = extractContext(prompt)
+            Log.d(TAG, "📝 Context information available: ${contextInfo.isNotEmpty()}")
+            
+            // Generate a response that references the context if present
+            val simulatedResponse = if (contextInfo.isNotEmpty()) {
+                generateContextAwareResponse(userQuestion, contextInfo)
+            } else {
+                "AI: I don't have enough context to answer your question about \"$userQuestion\". Please upload some documents first."
+            }
+            
+            Log.d(TAG, "✅ Generated simulation response")
+            reactApplicationContext.runOnUiQueueThread {
+                promise.resolve(simulatedResponse)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in mock text generation: ${e.message}")
+            reactApplicationContext.runOnUiQueueThread {
+                promise.reject("MOCK_GENERATION_ERROR", "Error in mock text generation: ${e.message}")
+            }
+        }
+    }
+    
     @ReactMethod
     fun unloadModel(promise: Promise) {
         modelExecutor.execute {
             try {
-                Log.d(TAG, "🧹 Unloading model")
-                freeModel()
+                Log.d(TAG, "🔄 Unloading model in simulation mode")
+                
+                // Just update our internal state since we're in simulation mode
                 modelPath = null
                 modelLoaded = false
                 Log.d(TAG, "✅ Model unloaded successfully")
@@ -194,38 +194,88 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     
     @ReactMethod
     fun downloadModelIfNeeded(promise: Promise) {
+        Log.d(TAG, "🔍 Starting model check/download process")
+        
         // Use our ModelDownloader to download or retrieve the model
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                Log.d(TAG, "🔍 Checking for Phi-3-mini model")
+                // Show device information for debugging
+                val deviceInfo = WritableNativeMap()
+                deviceInfo.putString("filesDir", reactApplicationContext.filesDir.absolutePath)
+                deviceInfo.putString("cacheDir", reactApplicationContext.cacheDir.absolutePath)
+                deviceInfo.putDouble("freeSpace", (reactApplicationContext.filesDir.freeSpace / (1024.0 * 1024.0)))
+                deviceInfo.putString("osVersion", android.os.Build.VERSION.RELEASE)
+                deviceInfo.putString("deviceModel", android.os.Build.MODEL)
+                
+                Log.d(TAG, "📱 Device info: ${deviceInfo.toString()}")
                 
                 // Check if model exists first
                 val existingPath = modelDownloader.getPhiModelPath()
                 if (existingPath != null) {
                     Log.d(TAG, "✅ Model already exists at $existingPath")
-                    withContext(Dispatchers.Main) {
-                        promise.resolve(existingPath)
+                    
+                    // Verify the model file is accessible and valid
+                    val modelFile = File(existingPath)
+                    if (modelFile.exists() && modelFile.isFile && modelFile.canRead() && modelFile.length() > 1024 * 1024) { // At least 1MB
+                        Log.d(TAG, "✅ Model file verified: ${modelFile.length() / (1024 * 1024)} MB")
+                        withContext(Dispatchers.Main) {
+                            promise.resolve(existingPath)
+                        }
+                        return@launch
+                    } else {
+                        // File exists but is not valid
+                        Log.e(TAG, "❌ Model file exists but is not valid. Size: ${modelFile.length()} bytes, Readable: ${modelFile.canRead()}")
+                        // Continue to download a new copy
                     }
-                    return@launch
                 }
+                
+                Log.d(TAG, "📥 No valid model found, starting download")
                 
                 // Download the model if it doesn't exist
                 try {
                     val downloadedPath = modelDownloader.downloadPhiModelIfNeeded()
-                    Log.d(TAG, "✅ Model downloaded to $downloadedPath")
-                    withContext(Dispatchers.Main) {
-                        promise.resolve(downloadedPath)
+                    
+                    // Verify the downloaded file
+                    val downloadedFile = File(downloadedPath)
+                    if (downloadedFile.exists() && downloadedFile.isFile && downloadedFile.canRead() && downloadedFile.length() > 1024 * 1024) {
+                        Log.d(TAG, "✅ Model successfully downloaded to $downloadedPath with size ${downloadedFile.length() / (1024 * 1024)} MB")
+                        withContext(Dispatchers.Main) {
+                            promise.resolve(downloadedPath)
+                        }
+                    } else {
+                        Log.e(TAG, "❌ Downloaded file is not valid: ${downloadedFile.absolutePath}, size: ${downloadedFile.length()} bytes")
+                        withContext(Dispatchers.Main) {
+                            promise.reject("INVALID_DOWNLOAD", "Downloaded file is invalid or corrupt")
+                        }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error downloading model: ${e.message}")
+                    // Get detailed error information
+                    val errorInfo = StringBuilder()
+                    errorInfo.append("Error downloading model: ${e.message}\n")
+                    
+                    // Check for common issues
+                    if (e.message?.contains("space", ignoreCase = true) == true) {
+                        errorInfo.append("Device storage may be full. Free some space and try again.")
+                    } else if (e.message?.contains("permission", ignoreCase = true) == true) {
+                        errorInfo.append("App may not have proper permissions to write files.")
+                    } else if (e.message?.contains("network", ignoreCase = true) == true || 
+                               e.message?.contains("connect", ignoreCase = true) == true) {
+                        errorInfo.append("Network error. Check your internet connection and try again.")
+                    }
+                    
+                    Log.e(TAG, "❌ Detailed download error: $errorInfo")
+                    e.printStackTrace()
+                    
                     withContext(Dispatchers.Main) {
-                        promise.reject("DOWNLOAD_ERROR", "Failed to download model: ${e.message}")
+                        promise.reject("DOWNLOAD_ERROR", errorInfo.toString())
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error checking or downloading model: ${e.message}")
+                Log.e(TAG, "❌ Unexpected error during model check/download: ${e.message}")
+                e.printStackTrace()
+                
                 withContext(Dispatchers.Main) {
-                    promise.reject("MODEL_DOWNLOAD_ERROR", e.message)
+                    promise.reject("MODEL_DOWNLOAD_ERROR", "Unexpected error: ${e.message}")
                 }
             }
         }
