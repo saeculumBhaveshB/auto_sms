@@ -37,12 +37,15 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     init {
         Log.d(TAG, "🔧 Phi3MiniModule initialized")
         
-        // Load the native library
+        // Load the native library - but don't crash if it's not available yet
+        // We'll check again when specific methods are called
         try {
             System.loadLibrary("llama")
             Log.d(TAG, "✅ Loaded llama library successfully")
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "❌ Failed to load llama library: ${e.message}")
+            Log.w(TAG, "⚠️ The app will continue but model loading will fail until the native library is available")
+            // Not setting modelLoaded to true, and we'll check for the library again when needed
         }
     }
     
@@ -66,6 +69,18 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
     fun loadModel(modelPathParam: String, promise: Promise) {
         Log.d(TAG, "🧠 Loading Phi-3-mini model from: $modelPathParam")
         
+        // Check if the native library is available
+        try {
+            System.loadLibrary("llama")
+            Log.d(TAG, "✅ Native library 'llama' is available")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "❌ Native library 'llama' is not available: ${e.message}")
+            reactApplicationContext.runOnUiQueueThread {
+                promise.reject("NATIVE_LIBRARY_MISSING", "Native library 'llama' is not available. The app needs to be rebuilt with native code support enabled.")
+            }
+            return
+        }
+        
         modelExecutor.execute {
             try {
                 // Check if model file exists
@@ -78,18 +93,32 @@ class Phi3MiniModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
                     return@execute
                 }
                 
-                val success = initModel(modelPathParam)
-                if (success) {
-                    modelPath = modelPathParam
-                    modelLoaded = true
-                    Log.d(TAG, "✅ Model loaded successfully")
-                    reactApplicationContext.runOnUiQueueThread {
-                        promise.resolve(true)
+                Log.d(TAG, "📊 Model file size: ${modelFile.length() / (1024 * 1024)} MB")
+                
+                try {
+                    val success = initModel(modelPathParam)
+                    if (success) {
+                        modelPath = modelPathParam
+                        modelLoaded = true
+                        Log.d(TAG, "✅ Model loaded successfully")
+                        reactApplicationContext.runOnUiQueueThread {
+                            promise.resolve(true)
+                        }
+                    } else {
+                        Log.e(TAG, "❌ Failed to load model")
+                        reactApplicationContext.runOnUiQueueThread {
+                            promise.reject("LOAD_FAILED", "Failed to load model")
+                        }
                     }
-                } else {
-                    Log.e(TAG, "❌ Failed to load model")
+                } catch (e: UnsatisfiedLinkError) {
+                    Log.e(TAG, "❌ Native method call failed: ${e.message}")
                     reactApplicationContext.runOnUiQueueThread {
-                        promise.reject("LOAD_FAILED", "Failed to load model")
+                        promise.reject("NATIVE_METHOD_ERROR", "Native method call failed: ${e.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error calling native method: ${e.message}")
+                    reactApplicationContext.runOnUiQueueThread {
+                        promise.reject("NATIVE_CALL_ERROR", "Error calling native method: ${e.message}")
                     }
                 }
             } catch (e: Exception) {

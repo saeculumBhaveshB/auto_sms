@@ -10,6 +10,7 @@ import java.net.URL
 import java.nio.channels.Channels
 import java.nio.channels.FileChannel
 import java.nio.channels.ReadableByteChannel
+import java.io.IOException
 
 /**
  * Utility class for downloading and managing LLM models
@@ -33,14 +34,20 @@ class ModelDownloader(private val context: Context) {
     suspend fun downloadPhiModelIfNeeded(): String = withContext(Dispatchers.IO) {
         val modelsDir = File(context.filesDir, "models")
         if (!modelsDir.exists()) {
-            modelsDir.mkdirs()
+            Log.d(TAG, "📁 Creating models directory at ${modelsDir.absolutePath}")
+            val created = modelsDir.mkdirs()
+            if (!created) {
+                Log.e(TAG, "❌ Failed to create models directory at ${modelsDir.absolutePath}")
+                throw IOException("Failed to create models directory")
+            }
         }
         
         val modelFile = File(modelsDir, PHI3_MINI_Q4_FILENAME)
+        Log.d(TAG, "🔍 Checking for model file at ${modelFile.absolutePath}")
         
         // If the model already exists and is not empty, return its path
         if (modelFile.exists() && modelFile.length() > 0) {
-            Log.d(TAG, "✅ Model already exists at ${modelFile.absolutePath}")
+            Log.d(TAG, "✅ Model already exists at ${modelFile.absolutePath} with size ${modelFile.length() / (1024 * 1024)} MB")
             return@withContext modelFile.absolutePath
         }
         
@@ -53,37 +60,61 @@ class ModelDownloader(private val context: Context) {
             connection.connectTimeout = 30000 // 30 seconds
             connection.readTimeout = 300000  // 5 minutes
             
-            val contentLength = connection.contentLength
-            Log.d(TAG, "📊 Model size: ${contentLength / (1024 * 1024)} MB")
-            
-            val inputChannel: ReadableByteChannel = Channels.newChannel(connection.getInputStream())
-            val outputStream = FileOutputStream(modelFile)
-            val fileChannel: FileChannel = outputStream.channel
-            
-            var bytesTransferred: Long = 0
-            val buffer = 1024 * 1024 * 10 // 10MB buffer
-            var position: Long = 0
-            
-            while (bytesTransferred < contentLength) {
-                val transferred = fileChannel.transferFrom(inputChannel, position, buffer.toLong())
-                if (transferred <= 0) break
-                position += transferred
-                bytesTransferred += transferred
+            try {
+                val contentLength = connection.contentLength
+                Log.d(TAG, "📊 Model size: ${contentLength / (1024 * 1024)} MB")
                 
-                // Log progress
-                val progress = (bytesTransferred.toDouble() / contentLength.toDouble() * 100).toInt()
-                Log.d(TAG, "⏳ Download progress: $progress%")
+                val inputChannel: ReadableByteChannel = Channels.newChannel(connection.getInputStream())
+                val outputStream = FileOutputStream(modelFile)
+                val fileChannel: FileChannel = outputStream.channel
+                
+                var bytesTransferred: Long = 0
+                val buffer = 1024 * 1024 * 10 // 10MB buffer
+                var position: Long = 0
+                
+                while (bytesTransferred < contentLength) {
+                    val transferred = fileChannel.transferFrom(inputChannel, position, buffer.toLong())
+                    if (transferred <= 0) {
+                        Log.w(TAG, "⚠️ No more bytes transferred, stopping at $bytesTransferred/$contentLength bytes")
+                        break
+                    }
+                    position += transferred
+                    bytesTransferred += transferred
+                    
+                    // Log progress
+                    val progress = (bytesTransferred.toDouble() / contentLength.toDouble() * 100).toInt()
+                    Log.d(TAG, "⏳ Download progress: $progress%")
+                }
+                
+                fileChannel.close()
+                outputStream.close()
+                inputChannel.close()
+                
+                if (bytesTransferred < contentLength) {
+                    Log.w(TAG, "⚠️ Download incomplete: $bytesTransferred/$contentLength bytes transferred")
+                }
+                
+                if (modelFile.exists() && modelFile.length() > 0) {
+                    Log.d(TAG, "✅ Model downloaded successfully to ${modelFile.absolutePath} with size ${modelFile.length() / (1024 * 1024)} MB")
+                    return@withContext modelFile.absolutePath
+                } else {
+                    Log.e(TAG, "❌ Model file not created or has zero size")
+                    throw IOException("Model file not created or has zero size")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error during download: ${e.message}")
+                
+                // Clean up partial file
+                if (modelFile.exists()) {
+                    Log.d(TAG, "🧹 Deleting partial download file")
+                    modelFile.delete()
+                }
+                
+                throw e
             }
-            
-            fileChannel.close()
-            outputStream.close()
-            inputChannel.close()
-            
-            Log.d(TAG, "✅ Model downloaded successfully to ${modelFile.absolutePath}")
-            return@withContext modelFile.absolutePath
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error downloading model: ${e.message}")
-            throw e
+            Log.e(TAG, "❌ Error downloading model: ${e.message}", e)
+            throw IOException("Error downloading model: ${e.message}", e)
         }
     }
     

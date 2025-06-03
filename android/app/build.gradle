@@ -124,11 +124,11 @@ android {
         exclude 'META-INF/ASL2.0'
     }
 
-    // Disable native code integration temporarily
+    // Enable native code integration - commented out until llama.cpp is properly implemented
     // externalNativeBuild {
-    //    cmake {
-    //        path "src/main/cpp/CMakeLists.txt"
-    //    }
+    //     cmake {
+    //         path "src/main/cpp/CMakeLists.txt"
+    //     }
     // }
 }
 

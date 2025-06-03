@@ -99,16 +99,16 @@ const Phi3MiniTester: React.FC<Phi3MiniTesterProps> = () => {
       // First check if we need to download the model
       let modelPath;
       try {
+        logDebug("📥 Checking if model needs to be downloaded");
         modelPath = await Phi3MiniModule.downloadModelIfNeeded();
         logDebug(`📁 Model path: ${modelPath}`);
       } catch (e: any) {
         logDebug(`⚠️ Model download warning: ${e.message}`);
 
-        // We'll show an alert to the user, but continue with the flow
-        // In a production app, you would handle this more gracefully
+        // Show an alert to the user with more details
         Alert.alert(
-          "Model Download Required",
-          `Phi-3-mini model is not available locally. Please download it manually and place it in the app's model directory.\n\n${e.message}`,
+          "Model Download Failed",
+          `Could not download or locate the Phi-3-mini model.\n\nError: ${e.message}`,
           [{ text: "OK" }]
         );
         setModelLoading(false);
@@ -116,12 +116,46 @@ const Phi3MiniTester: React.FC<Phi3MiniTesterProps> = () => {
       }
 
       // Now load the model
-      const loaded = await Phi3MiniModule.loadModel(modelPath);
-      setIsModelLoaded(loaded);
-      logDebug(`✅ Model loaded: ${loaded}`);
+      try {
+        logDebug(`🔄 Attempting to load model from path: ${modelPath}`);
+        const loaded = await Phi3MiniModule.loadModel(modelPath);
+        setIsModelLoaded(loaded);
+        logDebug(`✅ Model loaded: ${loaded}`);
+
+        // Show success message
+        Alert.alert("Success", "Phi-3-mini model loaded successfully!", [
+          { text: "OK" },
+        ]);
+      } catch (e: any) {
+        logDebug(`❌ Error loading model: ${e.message}`);
+
+        // Show detailed error message to the user
+        let errorMessage = `Could not load the Phi-3-mini model.\n\nError: ${e.message}`;
+
+        // Add more helpful information based on error type
+        if (e.message.includes("NATIVE_LIBRARY_MISSING")) {
+          errorMessage +=
+            "\n\nThe native library is not available. This may be due to an installation issue or missing components.";
+        } else if (e.message.includes("MODEL_NOT_FOUND")) {
+          errorMessage +=
+            "\n\nThe model file could not be found at the specified location.";
+        }
+
+        Alert.alert("Model Loading Failed", errorMessage, [{ text: "OK" }]);
+
+        setError(`Failed to load model: ${e.message}`);
+      }
     } catch (e: any) {
-      logDebug(`❌ Error loading model: ${e.message}`);
-      setError(`Failed to load model: ${e.message}`);
+      logDebug(
+        `❌ Unexpected error during model loading workflow: ${e.message}`
+      );
+      setError(`Unexpected error: ${e.message}`);
+
+      Alert.alert(
+        "Error",
+        `An unexpected error occurred while setting up the model.\n\nError: ${e.message}`,
+        [{ text: "OK" }]
+      );
     } finally {
       setModelLoading(false);
     }
