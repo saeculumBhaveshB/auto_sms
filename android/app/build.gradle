@@ -121,7 +121,15 @@ android {
         exclude 'META-INF/NOTICE.txt'
         exclude 'META-INF/notice.txt'
         exclude 'META-INF/*.kotlin_module'
+        exclude 'META-INF/ASL2.0'
     }
+
+    // Disable native code integration temporarily
+    // externalNativeBuild {
+    //    cmake {
+    //        path "src/main/cpp/CMakeLists.txt"
+    //    }
+    // }
 }
 
 repositories {
@@ -169,4 +177,10 @@ dependencies {
     
     // Text processing utilities
     implementation("org.apache.commons:commons-text:1.10.0")
+    
+    // PDFBox for PDF text extraction
+    implementation("com.tom-roush:pdfbox-android:2.0.25.0")
+    
+    // llama.cpp dependencies
+    implementation(fileTree(dir: "libs", include: ["*.jar", "*.aar"]))
 }

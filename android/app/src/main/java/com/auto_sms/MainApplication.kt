@@ -15,8 +15,12 @@ import com.auto_sms.permissions.PermissionsPackage
 import com.auto_sms.callsms.CallSmsPackage
 import com.auto_sms.docparser.DocParserPackage
 import com.auto_sms.llm.LocalLLMPackage
+import com.auto_sms.llm.Phi3MiniPackage
 
 class MainApplication : Application(), ReactApplication {
+
+  // Always enable the Phi3MiniPackage
+  private val enablePhi3MiniNative = true
 
   override val reactNativeHost: ReactNativeHost =
       object : DefaultReactNativeHost(this) {
@@ -28,6 +32,8 @@ class MainApplication : Application(), ReactApplication {
               add(CallSmsPackage())
               add(DocParserPackage())
               add(LocalLLMPackage())
+              // Always add Phi3MiniPackage
+              add(Phi3MiniPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

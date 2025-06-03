@@ -1,8 +1,18 @@
-import React from "react";
-import { View, Text, StyleSheet, ScrollView, SafeAreaView } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  SafeAreaView,
+  TouchableOpacity,
+} from "react-native";
 import LLMTester from "../components/LLMTester";
+import Phi3MiniTester from "../components/Phi3MiniTester";
 
 const LLMTestScreen: React.FC = () => {
+  const [activeModel, setActiveModel] = useState<"default" | "phi3">("default");
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -11,7 +21,43 @@ const LLMTestScreen: React.FC = () => {
           <Text style={styles.subtitle}>
             Test the Local LLM functionality directly without sending SMS
           </Text>
-          <LLMTester />
+
+          {/* Model selection tabs */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeModel === "default" && styles.activeTab,
+              ]}
+              onPress={() => setActiveModel("default")}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeModel === "default" && styles.activeTabText,
+                ]}
+              >
+                Default LLM
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeModel === "phi3" && styles.activeTab]}
+              onPress={() => setActiveModel("phi3")}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeModel === "phi3" && styles.activeTabText,
+                ]}
+              >
+                Phi-3-mini
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Render the selected LLM tester */}
+          {activeModel === "default" ? <LLMTester /> : <Phi3MiniTester />}
 
           <View style={styles.infoCard}>
             <Text style={styles.infoTitle}>How it works:</Text>
@@ -19,7 +65,7 @@ const LLMTestScreen: React.FC = () => {
               1. Enter your question in the text field
             </Text>
             <Text style={styles.infoText}>
-              2. The app will process your question using the Local LLM
+              2. The app will process your question using the selected LLM
             </Text>
             <Text style={styles.infoText}>
               3. The response will be generated based on your uploaded documents
@@ -51,7 +97,31 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: "#666",
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  tabContainer: {
+    flexDirection: "row",
+    marginBottom: 16,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  tab: {
+    flex: 1,
+    padding: 12,
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+  },
+  activeTab: {
+    backgroundColor: "#2196f3",
+  },
+  tabText: {
+    fontWeight: "600",
+    color: "#666",
+  },
+  activeTabText: {
+    color: "white",
   },
   infoCard: {
     backgroundColor: "#e3f2fd",
