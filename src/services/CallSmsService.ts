@@ -123,8 +123,25 @@ class CallSmsService {
 
       console.log("Generating LLM response to SMS from:", phoneNumber);
 
-      // Get the LLM-generated response
-      const llmResponse = await LocalLLMService.generateAnswer(message);
+      let llmResponse = "";
+
+      // First try to use Document QA for more context-aware responses
+      try {
+        console.log("Attempting Document QA for more context-aware response");
+        const MAX_PASSAGES = 5; // Same as in LLMTester.tsx
+
+        llmResponse = await CallSmsModule.documentQA(message, MAX_PASSAGES);
+        console.log("Generated Document QA response:", llmResponse);
+      } catch (docError) {
+        console.warn(
+          "Document QA failed, falling back to Basic LLM:",
+          docError
+        );
+
+        // Fall back to basic LLM if Document QA fails
+        llmResponse = await CallSmsModule.testLLM(message);
+        console.log("Generated Basic LLM fallback response:", llmResponse);
+      }
 
       // Send the LLM response
       await this.sendSms(phoneNumber, llmResponse);
@@ -461,11 +478,41 @@ class CallSmsService {
    */
   async sendMissedCallSms(phoneNumber: string): Promise<boolean> {
     try {
-      // Check if AI is enabled
+      // Check which auto-reply mode is enabled
       const aiEnabled = await this.isAIEnabled();
+      const llmEnabled = await this.isLLMAutoReplyEnabled();
 
-      // Get the appropriate message
-      const message = await this.getInitialSmsMessage();
+      let message = "";
+
+      if (llmEnabled) {
+        // Use Basic LLM for missed call response
+        try {
+          console.log(
+            "Using Local LLM for missed call auto-reply to:",
+            phoneNumber
+          );
+
+          // Create a prompt for missed call scenario
+          const prompt =
+            "Generate a short and polite message for someone who just missed my call, explaining that I'm busy but can chat via SMS. Make it brief and friendly.";
+
+          // Use the same method as the Basic LLM button
+          message = await CallSmsModule.testLLM(prompt);
+
+          console.log("Generated LLM missed call message:", message);
+        } catch (e) {
+          console.error("Error generating LLM missed call message:", e);
+          // Fall back to standard message if LLM fails
+          message = await this.getInitialSmsMessage();
+        }
+      } else if (aiEnabled) {
+        // Use AI-powered but non-LLM message
+        message =
+          "AI: I am busy, please give me some time, I will contact you.";
+      } else {
+        // Use standard message
+        message = await this.getInitialSmsMessage();
+      }
 
       // Send the message
       return await this.sendSms(phoneNumber, message);
