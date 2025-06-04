@@ -800,12 +800,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                         Log.d(TAG, "Using local LLM for response generation")
                         val response = localLLMModule.generateAnswerSync(messageBody, 0.7f, 200)
                         
-                        // Ensure response starts with "AI:" prefix
-                        return if (response.startsWith("AI:")) {
-                            response
-                        } else {
-                            "AI: $response"
-                        }
+                        // Remove any "AI:" prefix instead of adding one
+                        return response.replace(Regex("^AI:\\s*", RegexOption.IGNORE_CASE), "")
                     } else {
                         Log.d(TAG, "Local LLM model is not loaded, falling back to online API")
                     }
@@ -818,16 +814,16 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             return generateAIResponseSync(caller, messageBody)
         } catch (e: Exception) {
             Log.e(TAG, "Error in processIncomingSmsWithLLM: ${e.message}")
-            return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+            return "Sorry, I am not capable of giving this answer. Please try again later."
         }
     }
     
     /**
      * Fallback method for generating AI responses when LLM is not available
      */
-    private fun generateAIResponseSync(caller: String, message: String): String {
+    private fun generateAIResponseSync(caller: String, messageBody: String): String {
         // Simple fallback response when local LLM is not available
-        return "AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question."
+        return "Sorry, I am not capable of giving this answer. Please try again later."
     }
 
     @ReactMethod
@@ -1179,7 +1175,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                         override fun run() {
                             Log.e(TAG, "⚠️ LLM processing timeout reached")
                             try {
-                                promise.resolve("AI: The processing took too long to respond. This might be due to complex documents or processing issues. Please try again with a simpler query.")
+                                promise.resolve("The processing took too long to respond. This might be due to complex documents or processing issues. Please try again with a simpler query.")
                             } catch (e: Exception) {
                                 Log.e(TAG, "❌ Error handling timeout: ${e.message}")
                             }
@@ -1201,12 +1197,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     val endTime = System.currentTimeMillis()
                             Log.d(TAG, "⏱️ LLM test completed in ${endTime - startTime}ms")
                             
-                            // Format and return response
-                            val formattedResponse = if (!response.startsWith("AI:")) {
-                                "AI: $response"
-                    } else {
-                                response
-                            }
+                            // Format and return response without the "AI:" prefix
+                            val formattedResponse = response.replace(Regex("^AI:\\s*", RegexOption.IGNORE_CASE), "")
                             
                             promise.resolve(formattedResponse)
                         } catch (e: Exception) {
@@ -1245,7 +1237,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                             
                             if (relevantSentences.isNotEmpty()) {
                                 // Construct a helpful response using the extracted content
-                                val response = StringBuilder("AI: ")
+                                val response = StringBuilder()
                                 relevantSentences.forEach { sentence ->
                                     response.append(sentence.trim())
                                     if (!sentence.trim().endsWith(".")) response.append(".")
@@ -1257,6 +1249,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                 cleanedResponse = cleanedResponse.replace(Regex("Document \\d+: [^\n]+\n"), "")
                                 cleanedResponse = cleanedResponse.replace(Regex("Title: [^\n]+\n"), "")
                                 cleanedResponse = cleanedResponse.replace(Regex("Content: \\s*\n"), "")
+                                cleanedResponse = cleanedResponse.replace(Regex("^AI:\\s*", RegexOption.IGNORE_CASE), "")
                                 
                                 promise.resolve(cleanedResponse)
                             } else {
@@ -1277,15 +1270,15 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                                     .take(2)
                                 
                                 if (possiblyRelevantDocs.isNotEmpty()) {
-                                    val relevantDocNames = possiblyRelevantDocs.joinToString(", ")
-                                    promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.")                                    
+                                    val docNames = possiblyRelevantDocs.joinToString(", ")
+                                    promise.resolve("I found some information in ${docNames} that might be relevant to your question about ${keywords.first()}, but I couldn't extract a specific answer. Could you ask in a different way?")
                                 } else {
-                                   promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
+                                    promise.resolve("I have documents about ${documentCountText}, but I couldn't find specific information about your question. Could you try asking in a different way?")
                                 }
                             }
                         } else {
                             // Generic response when no relevant content found
-                            promise.resolve("AI: Sorry, I am not capable of giving this answer. Wait for a call or try with a different question.") 
+                            promise.resolve("Sorry, I couldn't find enough information to answer your question. Please try asking in a different way.")
                         }
                     }
                     return
@@ -1313,10 +1306,10 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 // Generate a response based on the query content
                 val keyTerms = identifyKeyTerms(question)
                 if (keyTerms.isNotEmpty()) {
-                    val response = "AI: I don't have any documents to analyze about '${keyTerms.joinToString(", ")}'. Please upload relevant documents first."
+                    val response = "I don't have any documents to analyze about '${keyTerms.joinToString(", ")}'. Please upload relevant documents first."
                     promise.resolve(response)
                 } else {
-                    val response = "AI: I don't have any documents to analyze. Please upload some documents related to your question."
+                    val response = "I don't have any documents to analyze. Please upload some documents related to your question."
                     promise.resolve(response)
                 }
             }
@@ -1408,8 +1401,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         // Add formatting instructions
         sb.append("Please provide a concise answer based only on the information in the documents. ")
         sb.append("Do not include document references or metadata in your answer. ")
-        sb.append("Just provide the direct information that answers the question. ")
-        sb.append("Start your response with 'AI: '")
+        sb.append("Just provide the direct information that answers the question.")
         
         return sb.toString()
     }
@@ -2330,7 +2322,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             val timeoutTask = object : TimerTask() {
                 override fun run() {
                     Log.e(TAG, "⚠️ Document QA processing timeout reached")
-                    promise.resolve("AI: The process is taking longer than expected. This might be due to complex documents. Please try again with a more specific question.")
+                    promise.resolve("The process is taking longer than expected. This might be due to complex documents. Please try again with a more specific question.")
                 }
             }
             timeoutTimer.schedule(timeoutTask, 30000) // 30 second timeout
@@ -2344,9 +2336,9 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 // Check if documents directory exists but has no extractable text
                 val documentsDir = File(reactApplicationContext.filesDir, "documents")
                 if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
-                    promise.resolve("AI: I found documents in your library, but couldn't extract readable text from them. Try uploading PDF or DOCX files with selectable text content.")
+                    promise.resolve("I found documents in your library, but couldn't extract readable text from them. Try uploading PDF or DOCX files with selectable text content.")
                 } else {
-                    promise.resolve("AI: I don't have any documents to analyze. Please upload some documents first.")
+                    promise.resolve("I don't have any documents to analyze. Please upload some documents first.")
                 }
                 return
             }
@@ -2379,11 +2371,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     }
                     
                     // Format response for UI
-                    val formattedResponse = if (!response.startsWith("AI:")) {
-                        "AI: $response"
-                    } else {
-                        response
-                    }
+                    val formattedResponse = response.replace(Regex("^AI:\\s*", RegexOption.IGNORE_CASE), "")
                     
                     timeoutTimer.cancel()
                     val endTime = System.currentTimeMillis()
@@ -2410,9 +2398,9 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                     // Create a response based on document names
                     val documentNames = documentsWithText.keys.take(3).joinToString(", ")
                     val response = if (documentNames.isNotEmpty()) {
-                        "AI: I analyzed your documents ($documentNames) but couldn't find specific information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
+                        "I analyzed your documents ($documentNames) but couldn't find specific information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
                     } else {
-                        "AI: I have ${documentsWithText.size} document(s) but couldn't find relevant information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
+                        "I have ${documentsWithText.size} document(s) but couldn't find relevant information about '${getQueryTopic(question)}'. Please try asking about topics covered in your documents."
                     }
                     promise.resolve(response)
                 }
@@ -2425,14 +2413,14 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 val documentsDir = File(reactApplicationContext.filesDir, "documents")
                 if (documentsDir.exists() && documentsDir.listFiles()?.isNotEmpty() == true) {
                     // We have documents but had an error processing them
-                    promise.resolve("AI: I encountered an issue while analyzing your documents for this specific question. Try asking a different question or check your document formats.")
+                    promise.resolve("I encountered an issue while analyzing your documents for this specific question. Try asking a different question or check your document formats.")
                 } else {
                     // No documents available
-                    promise.resolve("AI: I need documents to answer your questions properly. Please upload relevant documents first.")
+                    promise.resolve("I need documents to answer your questions properly. Please upload relevant documents first.")
                 }
             } catch (fallbackError: Exception) {
                 // Last resort response
-                promise.resolve("AI: I encountered a technical issue while processing your request. Please try again.")
+                promise.resolve("I encountered a technical issue while processing your request. Please try again.")
             }
         }
     }
@@ -2503,7 +2491,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         sb.append("Provide only the direct information from the passages that answers the question. ")
         sb.append("Do not mention document names, do not add phrases like 'Based on your documents' or 'According to the documents'. ")
         sb.append("Do not include metadata like document titles or references. ")
-        sb.append("Start your response with 'AI: ' and then immediately provide the relevant information.")
+        sb.append("Provide the relevant information directly without any prefixes.")
         
         return sb.toString()
     }
@@ -2639,10 +2627,10 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             Log.e(TAG, "❌ Error creating content-based response: ${e.message}")
             // Even in error cases, we want to provide a document-based response
             try {
-                promise.resolve("AI: I encountered a technical issue while processing your question. Please try again.")
+                promise.resolve("I encountered a technical issue while processing your question. Please try again.")
             } catch (fallbackError: Exception) {
                 // Last resort fallback
-                promise.resolve("AI: I encountered a technical issue. Please try again with a different question.")
+                promise.resolve("I encountered a technical issue. Please try again with a different question.")
             }
         }
     }

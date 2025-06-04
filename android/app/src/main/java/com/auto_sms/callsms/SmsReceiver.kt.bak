@@ -63,19 +63,8 @@ class SmsReceiver : BroadcastReceiver() {
         // ENSURE LLM AUTO-REPLY IS ENABLED BY DEFAULT FOR TESTING
         ensureLLMAutoReplyEnabled(context, sharedPrefs)
         
-        // CRITICAL FIX: After ensuring settings, re-read them to get updated values
-        // This ensures we have the correct state after the ensureLLMAutoReplyEnabled method
-        // may have modified them to avoid conflicts
-        var autoReplyEnabled = sharedPrefs.getBoolean(AUTO_REPLY_ENABLED_KEY, false)
+        val autoReplyEnabled = sharedPrefs.getBoolean(AUTO_REPLY_ENABLED_KEY, false)
         val llmAutoReplyEnabled = sharedPrefs.getBoolean(LLM_AUTO_REPLY_ENABLED_KEY, false)
-        
-        // CRITICAL: Double-check that we're not accidentally enabling both
-        // If both are enabled, prioritize LLM auto-reply and disable simple auto-reply
-        if (llmAutoReplyEnabled && autoReplyEnabled) {
-            Log.e(TAG, "⚠️ SmsReceiver - Both auto-reply modes are enabled! Disabling simple auto-reply")
-            sharedPrefs.edit().putBoolean(AUTO_REPLY_ENABLED_KEY, false).apply()
-            autoReplyEnabled = false
-        }
         
         // Debug ALL shared preferences values related to auto-reply - VERY VERBOSE
         Log.e(TAG, "📊📊📊 SmsReceiver - SHARED PREFS DUMP 📊📊📊")
@@ -139,7 +128,7 @@ class SmsReceiver : BroadcastReceiver() {
                             val useEnhancedQA = sharedPrefs.getBoolean(LLM_ENHANCED_QA_KEY, true)
                             Log.e(TAG, "📊 Enhanced Document QA Enabled: $useEnhancedQA")
                             
-                            var response: String = "" // Initialize as empty string instead of nullable
+                            var response: String? = null
                             
                             if (useEnhancedQA) {
                                 try {
@@ -175,7 +164,7 @@ class SmsReceiver : BroadcastReceiver() {
                                                     // Clean the response before using it to remove any prompt instructions
                                                     val rawResponse = result as String
                                                     response = cleanLLMResponse(rawResponse)
-                                                    if (response.isNotEmpty()) {
+                                                    if (response != null) {
                                                         Log.e(TAG, "✅ Successfully got LLM response and cleaned it: $response")
                                                     } else {
                                                         Log.e(TAG, "⚠️ LLM response was empty after cleaning")
@@ -198,18 +187,18 @@ class SmsReceiver : BroadcastReceiver() {
                             }
                             
                             // If document QA didn't provide a response, fall back to standard LLM
-                            if (response.isEmpty()) {
+                            if (response == null) {
                                 Log.e(TAG, "📝 Document QA failed or disabled, falling back to standard LLM response")
                                 val rawResponse = generateLLMResponse(context, messageBody)
-                                if (rawResponse.isNotEmpty()) {
+                                if (rawResponse != null) {
                                     response = cleanLLMResponse(rawResponse)
-                                    if (response.isEmpty()) {
+                                    if (response == null) {
                                         Log.e(TAG, "⚠️ Standard LLM response was empty after cleaning")
                                     }
                                 }
                             }
                             
-                            if (response.isNotEmpty()) {
+                            if (response != null) {
                                 // We've already cleaned the response, so we can send it directly
                                 Log.e(TAG, "✅ SmsReceiver - Using cleaned LLM response: $response")
                                 sendReply(context, phoneNumber, response)
@@ -222,20 +211,17 @@ class SmsReceiver : BroadcastReceiver() {
                                 }
                                 continue
                             } else {
-                                // CRITICAL FIX: When LLM auto-reply is enabled but fails to generate a response,
-                                // DO NOT fall back to simple auto-reply to prevent sending duplicate messages in future
-                                Log.e(TAG, "❌ SmsReceiver - LLM response generation failed")
-                                
-                                // Send a generic response instead of falling back to simple auto-reply
-                                val fallbackLLMResponse = ""
-                                Log.e(TAG, "⚠️ SmsReceiver - Using fallback LLM response: $fallbackLLMResponse")
-                                sendReply(context, phoneNumber, fallbackLLMResponse)
-                                
-                                try {
-                                    abortBroadcast()
-                                    Log.e(TAG, "🔒 SmsReceiver - Broadcast aborted to prevent duplicate processing")
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "⚠️ SmsReceiver - Failed to abort broadcast: ${e.message}")
+                                Log.e(TAG, "❌ SmsReceiver - LLM response generation failed, falling back to simple auto-reply")
+                                if (autoReplyEnabled) {
+                                    Log.e(TAG, "⤵️ SmsReceiver - Falling back to simple auto-reply")
+                                    sendAutoReply(context, phoneNumber)
+                                    Log.e(TAG, "📤 SmsReceiver - Simple auto-reply sent")
+                                    try {
+                                        abortBroadcast()
+                                        Log.e(TAG, "🔒 SmsReceiver - Broadcast aborted to prevent duplicate processing")
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "⚠️ SmsReceiver - Failed to abort broadcast: ${e.message}")
+                                    }
                                 }
                                 continue
                             }
@@ -259,11 +245,11 @@ class SmsReceiver : BroadcastReceiver() {
                         if (llmAutoReplyEnabled && shouldProcessNonMissedCall(messageBody)) {
                             Log.e(TAG, "🔍 SmsReceiver - Non-missed call SMS contains keywords to process")
                             val rawResponse = generateLLMResponse(context, messageBody)
-                            if (rawResponse.isNotEmpty()) {
+                            if (rawResponse != null) {
                                 // Clean the response and send
                                 val cleanedResponse = cleanLLMResponse(rawResponse)
                                 
-                                if (cleanedResponse.isNotEmpty()) {
+                                if (cleanedResponse != null) {
                                     Log.e(TAG, "✅ SmsReceiver - LLM generated response for non-missed call: $cleanedResponse")
                                     sendReply(context, phoneNumber, cleanedResponse)
                                     try {
@@ -469,7 +455,7 @@ class SmsReceiver : BroadcastReceiver() {
     /**
      * Generate a response using the local LLM with document context
      */
-    fun generateLLMResponse(context: Context, question: String): String {
+    fun generateLLMResponse(context: Context, question: String): String? {
         try {
             Log.e(TAG, "🧠🧠🧠 LLM - CRITICAL: generateLLMResponse called for question: $question")
             
@@ -477,7 +463,7 @@ class SmsReceiver : BroadcastReceiver() {
             if (!initializeLocalLLM(context)) {
                 Log.e(TAG, "❌ LLM ERROR - Failed to initialize LocalLLM environment")
                 Log.e(TAG, "⚠️ FALLING BACK to error response")
-                return "" // Return empty string instead of error message
+                return null // Return null instead of error message
             }
             
             // First try to use direct method from CallSmsModule for consistent behavior with UI
@@ -638,7 +624,7 @@ class SmsReceiver : BroadcastReceiver() {
             } catch (e2: Exception) {
                 Log.e(TAG, "❌ LLM ERROR - Even manual implementation failed", e2)
                 Log.e(TAG, "⚠️ FALLING BACK to error response")
-                return "" // Return empty string instead of error message to avoid sending duplicate
+                return null // Return null instead of error message to avoid sending duplicate
             }
         }
     }
@@ -646,7 +632,7 @@ class SmsReceiver : BroadcastReceiver() {
     /**
      * Core response generation function that handles the LLM interaction
      */
-    private fun generateLLMResponseWithPrompt(context: Context, prompt: String): String {
+    private fun generateLLMResponseWithPrompt(context: Context, prompt: String): String? {
         try {
             // Get ReactContext to access the LocalLLMModule
             Log.e(TAG, "🔍 LLM - DIAGNOSTIC #1: Attempting to get ReactContext")
@@ -801,12 +787,12 @@ class SmsReceiver : BroadcastReceiver() {
                         }
                         
                         Log.e(TAG, "⚠️ FALLING BACK to document error response")
-                        return "" // Return empty string instead of error message
+                        return null // Return null instead of error message
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ LLM ERROR - Failed to auto-load model", e)
                     Log.e(TAG, "⚠️ FALLING BACK to document error response")
-                    return "" // Return empty string instead of error message
+                    return null // Return null instead of error message
                 }
             }
             
@@ -838,7 +824,7 @@ class SmsReceiver : BroadcastReceiver() {
             return cleanedAnswer
         } catch (e: Exception) {
             Log.e(TAG, "❌ LLM ERROR - Exception in generateLLMResponseWithPrompt", e)
-            return ""
+            return null
         }
     }
     
@@ -1346,16 +1332,6 @@ class SmsReceiver : BroadcastReceiver() {
             sharedPrefs.edit().putBoolean(LLM_AUTO_REPLY_ENABLED_KEY, true).apply()
         }
         
-        // CRITICAL FIX: When LLM auto-reply is enabled, DISABLE the simple auto-reply
-        // This prevents both types of messages from being sent
-        if (llmAutoReplyEnabled) {
-            val autoReplyEnabled = sharedPrefs.getBoolean(AUTO_REPLY_ENABLED_KEY, false)
-            if (autoReplyEnabled) {
-                Log.e(TAG, "🔄 SmsReceiver - Disabling simple auto-reply to avoid duplicate messages")
-                sharedPrefs.edit().putBoolean(AUTO_REPLY_ENABLED_KEY, false).apply()
-            }
-        }
-        
         // Also ensure enhanced document QA is enabled by default
         val enhancedQAEnabled = sharedPrefs.getBoolean(LLM_ENHANCED_QA_KEY, false)
         if (!enhancedQAEnabled) {
@@ -1420,7 +1396,7 @@ class SmsReceiver : BroadcastReceiver() {
         /**
          * Generate a response using manual implementation
          */
-        fun generateAnswer(prompt: String): String {
+        fun generateAnswer(prompt: String): String? {
             try {
                 Log.e(TAG, "🔄 Manually generating answer for prompt: $prompt")
                 
@@ -1437,14 +1413,14 @@ class SmsReceiver : BroadcastReceiver() {
                 // If no documents or empty content, return an error message
                 if (documents.isEmpty()) {
                     Log.e(TAG, "⚠️ No document content found in prompt")
-                    return "" // Return empty string instead of error message
+                    return null // Return null instead of error message
                 }
                 
                 // Try to find relevant information in the documents
                 val matchingDocs = findRelevantDocuments(lowerQuestion, documents)
                 if (matchingDocs.isEmpty()) {
                     Log.e(TAG, "⚠️ No relevant information found in documents")
-                    return "" // Return empty string instead of error message
+                    return null // Return null instead of error message
                 }
                 
                 // Generate answer based on matched content
@@ -1458,14 +1434,14 @@ class SmsReceiver : BroadcastReceiver() {
                 return cleanedAnswer
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating answer manually", e)
-                return "" // Return empty string instead of error message
+                return null // Return null instead of error message
             }
         }
         
         /**
          * Create a dynamic LLM-based response instead of static responses
          */
-        private fun createTopicSpecificResponse(question: String, documents: List<Pair<String, String>>): String {
+        private fun createTopicSpecificResponse(question: String, documents: List<Pair<String, String>>): String? {
             try {
                 Log.e(TAG, "🔄 Generating dynamic LLM response for question: $question")
                 
@@ -1474,14 +1450,14 @@ class SmsReceiver : BroadcastReceiver() {
                 return generateResponseFromDocuments(question, documents)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error creating dynamic response: ${e.message}", e)
-                return "" // Return empty string instead of error message
+                return null // Return null instead of error message
             }
         }
         
         /**
          * Generate a response from document content based on the question
          */
-        fun generateResponseFromDocuments(question: String, documents: List<Pair<String, String>>): String {
+        fun generateResponseFromDocuments(question: String, documents: List<Pair<String, String>>): String? {
             try {
                 // Extract keywords from the question for searching in documents
                 val questionLower = question.lowercase()
@@ -1786,7 +1762,7 @@ class SmsReceiver : BroadcastReceiver() {
             return results.sortedByDescending { it.third }
         }
         
-        private fun generateResponseFromMatches(question: String, matches: List<Triple<String, String, Float>>): String {
+        private fun generateResponseFromMatches(question: String, matches: List<Triple<String, String, Float>>): String? {
             // If no matches, return a fallback response
             if (matches.isEmpty()) {
                 return "I couldn't find any relevant information in your documents to answer this question."
