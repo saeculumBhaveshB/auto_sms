@@ -195,6 +195,19 @@ class SmsReceiver : BroadcastReceiver() {
                                     .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                     .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                     .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("\\[PDF document content\\]"), "")
+                                    .replace(Regex("\\[Document content\\]"), "")
+                                    .replace(Regex("\\[Spreadsheet data\\]"), "")
+                                    .replace(Regex("\\[Image content\\]"), "")
+                                    .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("from your documents"), "")
+                                    .replace(Regex("in your documents"), "")
+                                    .replace(Regex("according to your documents"), "")
+                                    .replace(Regex("as per your documents"), "")
+                                    .replace(Regex("in the documents"), "")
+                                    .replace(Regex("from the documents"), "")
                                     .trim()
                                 
                                 // Ensure we have a real answer, not just a document description
@@ -268,6 +281,19 @@ class SmsReceiver : BroadcastReceiver() {
                                     .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                     .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                     .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("\\[PDF document content\\]"), "")
+                                    .replace(Regex("\\[Document content\\]"), "")
+                                    .replace(Regex("\\[Spreadsheet data\\]"), "")
+                                    .replace(Regex("\\[Image content\\]"), "")
+                                    .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                    .replace(Regex("from your documents"), "")
+                                    .replace(Regex("in your documents"), "")
+                                    .replace(Regex("according to your documents"), "")
+                                    .replace(Regex("as per your documents"), "")
+                                    .replace(Regex("in the documents"), "")
+                                    .replace(Regex("from the documents"), "")
                                     .trim()
                                 
                                 // Ensure we have a real answer, not just a document description
@@ -498,8 +524,8 @@ class SmsReceiver : BroadcastReceiver() {
             // First, ensure LocalLLM environment is prepared
             if (!initializeLocalLLM(context)) {
                 Log.e(TAG, "❌ LLM ERROR - Failed to initialize LocalLLM environment")
-                Log.e(TAG, "⚠️ FALLING BACK to document error response")
-                return "AI: Unable to read your documents right now. Please try again later."
+                Log.e(TAG, "⚠️ FALLING BACK to error response")
+                return "AI: I'm not able to process your request at the moment. Please try again later."
             }
             
             // First try to use direct method from CallSmsModule for consistent behavior with UI
@@ -660,7 +686,7 @@ class SmsReceiver : BroadcastReceiver() {
             } catch (e2: Exception) {
                 Log.e(TAG, "❌ LLM ERROR - Even manual implementation failed", e2)
                 Log.e(TAG, "⚠️ FALLING BACK to error response")
-                return "AI: I'm not able to answer based on your documents. Please refine your query."
+                return "AI: I'm not able to answer your question at the moment. Please try again later."
             }
         }
     }
@@ -858,6 +884,19 @@ class SmsReceiver : BroadcastReceiver() {
                                       .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                       .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                       .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                      .replace(Regex("\\[PDF document content\\]"), "")
+                                      .replace(Regex("\\[Document content\\]"), "")
+                                      .replace(Regex("\\[Spreadsheet data\\]"), "")
+                                      .replace(Regex("\\[Image content\\]"), "")
+                                      .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                      .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                      .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                      .replace(Regex("from your documents"), "")
+                                      .replace(Regex("in your documents"), "")
+                                      .replace(Regex("according to your documents"), "")
+                                      .replace(Regex("as per your documents"), "")
+                                      .replace(Regex("in the documents"), "")
+                                      .replace(Regex("from the documents"), "")
                                       .trim()
             
             // Format response to ensure it has the "AI:" prefix
@@ -1036,14 +1075,14 @@ class SmsReceiver : BroadcastReceiver() {
         }
         
         val finalPrompt = """
-        You are an AI assistant helping answer questions based on the user's documents.
+        You are an AI assistant helping answer questions. Use the provided documents to answer but NEVER mention that you're using documents.
         
         ${documentBuilder}
         
-        Based on the above documents, please answer the following question:
+        Answer the following question based on the information above:
         $question
         
-        If the answer cannot be found in the documents, politely say so. Keep your response concise but helpful.
+        Keep your response concise and helpful. Do not mention or reference the documents directly in your answer.
         Respond with "AI: " followed by your answer.
         """.trimIndent()
         
@@ -1101,26 +1140,22 @@ class SmsReceiver : BroadcastReceiver() {
         
         return when {
             lowerFilename.endsWith(".pdf") -> {
-                // For PDFs, provide content extraction details
-                "This document appears to contain information relevant to your query. " +
-                "I'll analyze the extractable content for a specific answer based on your question."
+                // For PDFs, provide neutral content description
+                "[PDF document content]"
             }
             lowerFilename.endsWith(".docx") -> {
-                // For DOCX files, skip placeholder and focus on content extraction
-                "This document contains information that appears relevant to your query. " +
-                "I'll analyze the content to provide a specific answer based on your question."
+                // For DOCX files, neutral content description
+                "[Document content]"
             }
             lowerFilename.endsWith(".xlsx") -> {
-                "This document contains structured data that may be relevant to your query. " +
-                "I'll analyze the accessible content to address your question specifically."
+                "[Spreadsheet data]"
             }
             lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg") || 
             lowerFilename.endsWith(".png") || lowerFilename.endsWith(".gif") -> {
-                "This document contains visual information that might be relevant to your query. " +
-                "I'll provide the best answer based on the available context and metadata."
+                "[Image content]"
             }
             else -> {
-                "I'll analyze the content in this document to address your specific question."
+                "[Document content]"
             }
         }
     }
@@ -1445,14 +1480,14 @@ class SmsReceiver : BroadcastReceiver() {
                 // If no documents or empty content, return an error message
                 if (documents.isEmpty()) {
                     Log.e(TAG, "⚠️ No document content found in prompt")
-                    return "AI: I don't have access to any documents to help answer your question."
+                    return "AI: I don't have enough information to answer that question."
                 }
                 
                 // Try to find relevant information in the documents
                 val matchingDocs = findRelevantDocuments(lowerQuestion, documents)
                 if (matchingDocs.isEmpty()) {
                     Log.e(TAG, "⚠️ No relevant information found in documents")
-                    return "AI: I've looked through your documents but couldn't find any information related to your question. Could you try rephrasing or asking something else?"
+                    return "AI: I'm not able to answer this specific question with the information I have."
                 }
                 
                 // Generate answer based on matched content
@@ -1464,6 +1499,14 @@ class SmsReceiver : BroadcastReceiver() {
                                         .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                         .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
                                         .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+                                        .replace(Regex("based on your documents"), "")
+                                        .replace(Regex("based on the documents"), "")
+                                        .replace(Regex("from your documents"), "")
+                                        .replace(Regex("in your documents"), "")
+                                        .replace(Regex("according to your documents"), "")
+                                        .replace(Regex("as per your documents"), "")
+                                        .replace(Regex("in the documents"), "")
+                                        .replace(Regex("from the documents"), "")
                                         .trim()
                 
                 // If we removed too much content, generate a more specific answer
@@ -1478,7 +1521,7 @@ class SmsReceiver : BroadcastReceiver() {
                 return if (!cleanAnswer.startsWith("AI:")) "AI: $cleanAnswer" else cleanAnswer
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating answer manually", e)
-                return "AI: I'm having trouble processing your documents at the moment. Please try again later."
+                return "AI: I'm not able to provide an accurate answer to that question."
             }
         }
         
@@ -1511,7 +1554,7 @@ class SmsReceiver : BroadcastReceiver() {
                     .toSet()
                 
                 if (keywords.isEmpty()) {
-                    return "AI: I need more specific information to help answer your question. Could you please provide more details or ask in a different way?"
+                    return "AI: I need more specific information to help you. Could you please provide more details?"
                 }
                 
                 // Find relevant content in the documents
@@ -1545,11 +1588,11 @@ class SmsReceiver : BroadcastReceiver() {
                 }
                 
                 if (relevantContent.isEmpty()) {
-                    return "AI: I've analyzed the information in your documents but couldn't find a specific answer to your question. Please try asking differently or provide more details."
+                    return "AI: I don't have enough information to answer your question. Please try asking differently or provide more details."
                 }
                 
                 // Generate a response based on relevant content
-                val responseBuilder = StringBuilder("AI: Based on your documents, ")
+                val responseBuilder = StringBuilder("AI: ")
                 
                 // Use the most relevant paragraph for the answer
                 val bestParagraph = relevantContent.first()
@@ -1616,7 +1659,7 @@ class SmsReceiver : BroadcastReceiver() {
                             .take(3)
                         
                         if (sentences.isNotEmpty()) {
-                            val enhancedResponse = StringBuilder("AI: Based on your documents, ")
+                            val enhancedResponse = StringBuilder("AI: ")
                             sentences.forEach { sentence ->
                                 enhancedResponse.append(sentence.trim())
                                 if (!sentence.trim().endsWith(".")) enhancedResponse.append(".")
@@ -1627,13 +1670,13 @@ class SmsReceiver : BroadcastReceiver() {
                     }
                     
                     // If we still don't have a good response, create a generic but informative response
-                    return "AI: I found relevant information in your documents that may address your query, but I need more specific details to provide a precise answer. Could you please refine your question?"
+                    return "AI: I need more details to provide a precise answer. Could you please refine your question?"
                 }
                 
                 return response
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating response from documents: ${e.message}")
-                return "AI: Based on your documents, I found information that may be relevant to your query. Please ask a more specific question for a detailed answer."
+                return "AI: I need more information to answer your question properly. Could you please clarify?"
             }
         }
         
