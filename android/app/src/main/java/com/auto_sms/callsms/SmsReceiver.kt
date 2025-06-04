@@ -161,8 +161,10 @@ class SmsReceiver : BroadcastReceiver() {
                                                 // Call the method directly
                                                 val result = testLLMMethod.invoke(callSmsModule, messageBody)
                                                 if (result != null) {
-                                                    response = result as String
-                                                    Log.e(TAG, "✅ Successfully got LLM response: $response")
+                                                    // Clean the response before using it to remove any prompt instructions
+                                                    val rawResponse = result as String
+                                                    response = cleanLLMResponse(rawResponse)
+                                                    Log.e(TAG, "✅ Successfully got LLM response and cleaned it: $response")
                                                 } else {
                                                     Log.e(TAG, "❌ No response from LLM")
                                                 }
@@ -183,54 +185,16 @@ class SmsReceiver : BroadcastReceiver() {
                             // If document QA didn't provide a response, fall back to standard LLM
                             if (response == null) {
                                 Log.e(TAG, "📝 Document QA failed or disabled, falling back to standard LLM response")
-                                response = generateLLMResponse(context, messageBody)
+                                val rawResponse = generateLLMResponse(context, messageBody)
+                                if (rawResponse != null) {
+                                    response = cleanLLMResponse(rawResponse)
+                                }
                             }
                             
                             if (response != null) {
-                                val finalResponse: String = response as String
-                                
-                                // Filter out generic document descriptions to avoid sending placeholder messages
-                                val filteredResponse = finalResponse
-                                    .replace(Regex("\\[WORD DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[PDF document content\\]"), "")
-                                    .replace(Regex("\\[Document content\\]"), "")
-                                    .replace(Regex("\\[Spreadsheet data\\]"), "")
-                                    .replace(Regex("\\[Image content\\]"), "")
-                                    .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("from your documents"), "")
-                                    .replace(Regex("in your documents"), "")
-                                    .replace(Regex("according to your documents"), "")
-                                    .replace(Regex("as per your documents"), "")
-                                    .replace(Regex("in the documents"), "")
-                                    .replace(Regex("from the documents"), "")
-                                    .trim()
-                                
-                                // Ensure we have a real answer, not just a document description
-                                val responseToSend = if (filteredResponse.length < 20) {
-                                    // Instead of hardcoded static responses, try to generate a better response
-                                    // using the document context directly with the original question
-                                    Log.e(TAG, "⚠️ Filtered response too short, generating a document-based response")
-                                    val enhancedPrompt = buildPromptWithDocumentContent(context, messageBody)
-                                    val enhancedResponse = generateLLMResponseWithPrompt(context, enhancedPrompt)
-                                    
-                                    if (enhancedResponse != null && enhancedResponse.length > 30) {
-                                        enhancedResponse 
-                                    } else {
-                                        // If that still fails, use the original response
-                                        finalResponse
-                                    }
-                                } else {
-                                    // Use filtered response if it's substantial
-                                    filteredResponse
-                                }
-                                
-                                Log.e(TAG, "✅ SmsReceiver - LLM generated response: $responseToSend")
-                                sendReply(context, phoneNumber, responseToSend)
+                                // We've already cleaned the response, so we can send it directly
+                                Log.e(TAG, "✅ SmsReceiver - Using cleaned LLM response: $response")
+                                sendReply(context, phoneNumber, response)
                                 Log.e(TAG, "📤 SmsReceiver - Reply sent successfully!")
                                 try {
                                     abortBroadcast()
@@ -273,50 +237,13 @@ class SmsReceiver : BroadcastReceiver() {
                         // Check if we should handle it anyway (if message contains specific keywords)
                         if (llmAutoReplyEnabled && shouldProcessNonMissedCall(messageBody)) {
                             Log.e(TAG, "🔍 SmsReceiver - Non-missed call SMS contains keywords to process")
-                            val responseText = generateLLMResponse(context, messageBody)
-                            if (responseText != null) {
-                                // Apply the same filtering to non-missed call responses
-                                val filteredResponse = responseText
-                                    .replace(Regex("\\[WORD DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("\\[PDF document content\\]"), "")
-                                    .replace(Regex("\\[Document content\\]"), "")
-                                    .replace(Regex("\\[Spreadsheet data\\]"), "")
-                                    .replace(Regex("\\[Image content\\]"), "")
-                                    .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                    .replace(Regex("from your documents"), "")
-                                    .replace(Regex("in your documents"), "")
-                                    .replace(Regex("according to your documents"), "")
-                                    .replace(Regex("as per your documents"), "")
-                                    .replace(Regex("in the documents"), "")
-                                    .replace(Regex("from the documents"), "")
-                                    .trim()
+                            val rawResponse = generateLLMResponse(context, messageBody)
+                            if (rawResponse != null) {
+                                // Clean the response and send
+                                val cleanedResponse = cleanLLMResponse(rawResponse)
                                 
-                                // Ensure we have a real answer, not just a document description
-                                val responseToSend = if (filteredResponse.length < 20) {
-                                    // Instead of hardcoded static responses, try to generate a better response
-                                    // using the document context directly with the original question
-                                    Log.e(TAG, "⚠️ Filtered response too short, generating a document-based response")
-                                    val enhancedPrompt = buildPromptWithDocumentContent(context, messageBody)
-                                    val enhancedResponse = generateLLMResponseWithPrompt(context, enhancedPrompt)
-                                    
-                                    if (enhancedResponse != null && enhancedResponse.length > 30) {
-                                        enhancedResponse 
-                                    } else {
-                                        // If that still fails, use the original response
-                                        responseText
-                                    }
-                                } else {
-                                    // Use filtered response if it's substantial
-                                    filteredResponse
-                                }
-                                
-                                Log.e(TAG, "✅ SmsReceiver - LLM generated response for non-missed call: $responseToSend")
-                                sendReply(context, phoneNumber, responseToSend)
+                                Log.e(TAG, "✅ SmsReceiver - LLM generated response for non-missed call: $cleanedResponse")
+                                sendReply(context, phoneNumber, cleanedResponse)
                                 try {
                                     abortBroadcast()
                                 } catch (e: Exception) {
@@ -877,59 +804,13 @@ class SmsReceiver : BroadcastReceiver() {
             val inferenceTime = endTime - startTime
             
             Log.e(TAG, "⏱️ LLM - Inference took ${inferenceTime}ms")
-            Log.e(TAG, "✅ LLM - Generated answer: $answer")
+            Log.e(TAG, "✅ LLM - Generated raw answer: $answer")
             
-            // Filter out any document placeholder descriptions from the response
-            val filteredAnswer = answer.replace(Regex("\\[WORD DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("\\[PDF document content\\]"), "")
-                                      .replace(Regex("\\[Document content\\]"), "")
-                                      .replace(Regex("\\[Spreadsheet data\\]"), "")
-                                      .replace(Regex("\\[Image content\\]"), "")
-                                      .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                      .replace(Regex("from your documents"), "")
-                                      .replace(Regex("in your documents"), "")
-                                      .replace(Regex("according to your documents"), "")
-                                      .replace(Regex("as per your documents"), "")
-                                      .replace(Regex("in the documents"), "")
-                                      .replace(Regex("from the documents"), "")
-                                      .trim()
+            // Clean up the response to remove any artifacts
+            val cleanedAnswer = cleanLLMResponse(answer)
+            Log.e(TAG, "✅ LLM - Cleaned answer: $cleanedAnswer")
             
-            // Format response to ensure it has the "AI:" prefix
-            val formattedAnswer = if (!filteredAnswer.startsWith("AI:")) "AI: $filteredAnswer" else filteredAnswer
-            
-            // Check if we filtered out too much and the answer is now too short
-            if (formattedAnswer.length < 20) {
-                // If we don't have enough content, attempt to generate a more meaningful response
-                // based on whatever document content we have available
-                try {
-                    Log.e(TAG, "⚠️ Filtered answer too short, attempting to extract document content directly")
-                    
-                    // Extract the actual question from the prompt
-                    val questionText = prompt.split("\n").lastOrNull { 
-                        it.contains("?") || it.startsWith("how") || it.startsWith("what")
-                    } ?: ""
-                    
-                    // Generate a more meaningful response without relying on document extraction
-                    val meaningfulResponse = manualLLM.generateAnswer(prompt)
-                    if (meaningfulResponse.length > 30) {
-                        return meaningfulResponse
-                    }
-                    
-                    // If we couldn't extract from documents, create a more generic but still useful response
-                    return "AI: Based on the information in your documents, I can provide assistance with your query. Please ask a more specific question for detailed information."
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error generating enhanced response", e)
-                    // Fallback to a generic but useful response
-                    return "AI: I've analyzed your documents and found some relevant information. For more specific details, please refine your question."
-                }
-            }
-            
-            return formattedAnswer
+            return cleanedAnswer
         } catch (e: Exception) {
             Log.e(TAG, "❌ LLM ERROR - Exception in generateLLMResponseWithPrompt", e)
             return null
@@ -1075,15 +956,13 @@ class SmsReceiver : BroadcastReceiver() {
         }
         
         val finalPrompt = """
-        You are an AI assistant helping answer questions. Use the provided documents to answer but NEVER mention that you're using documents.
+        You are an AI assistant who answers questions concisely and helpfully. Use the provided information but NEVER mention using any documents.
         
         ${documentBuilder}
         
-        Answer the following question based on the information above:
-        $question
+        Question: $question
         
-        Keep your response concise and helpful. Do not mention or reference the documents directly in your answer.
-        Respond with "AI: " followed by your answer.
+        Your answer:
         """.trimIndent()
         
         Log.e(TAG, "📤 Final prompt created, length: ${finalPrompt.length} chars")
@@ -1230,6 +1109,9 @@ class SmsReceiver : BroadcastReceiver() {
     private fun sendReply(context: Context, phoneNumber: String, message: String) {
         Log.e(TAG, "📤 SmsReceiver - STARTING TO SEND REPLY to $phoneNumber: $message")
         
+        // Ensure we're not sending any prompt instructions
+        val cleanedMessage = cleanLLMResponse(message)
+        
         try {
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(SmsManager::class.java)
@@ -1250,7 +1132,7 @@ class SmsReceiver : BroadcastReceiver() {
             val sentPI = PendingIntent.getBroadcast(context, 0, sentIntent, pendingIntentFlags)
             
             // Split message if it's too long
-            val parts = smsManager.divideMessage(message)
+            val parts = smsManager.divideMessage(cleanedMessage)
             Log.e(TAG, "📤 SmsReceiver - Message split into ${parts.size} parts")
             
             try {
@@ -1268,7 +1150,7 @@ class SmsReceiver : BroadcastReceiver() {
                     Log.e(TAG, "📤 SmsReceiver - Sent multipart SMS (${parts.size} parts) SUCCESSFULLY")
                 } else {
                     Log.e(TAG, "📤 SmsReceiver - Sending single part SMS")
-                    smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
+                    smsManager.sendTextMessage(phoneNumber, null, cleanedMessage, sentPI, null)
                     Log.e(TAG, "📤 SmsReceiver - Sent single SMS SUCCESSFULLY")
                 }
             } catch (e: Exception) {
@@ -1280,7 +1162,7 @@ class SmsReceiver : BroadcastReceiver() {
                     Log.e(TAG, "🔄 SmsReceiver - Trying alternative SMS sending approach...")
                     val intent = Intent(Intent.ACTION_SENDTO)
                     intent.data = Uri.parse("smsto:$phoneNumber")
-                    intent.putExtra("sms_body", message)
+                    intent.putExtra("sms_body", cleanedMessage)
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     context.startActivity(intent)
                     Log.e(TAG, "✅ SmsReceiver - Alternative SMS approach succeeded")
@@ -1294,9 +1176,9 @@ class SmsReceiver : BroadcastReceiver() {
             // Save to history
             val historyItem = org.json.JSONObject().apply {
                 put("phoneNumber", phoneNumber)
-                put("message", message)
+                put("message", cleanedMessage)
                 put("status", "SENT")
-                put("type", if (message.startsWith("AI:")) "LLM_REPLY" else "AUTO_REPLY")
+                put("type", if (cleanedMessage.startsWith("AI:")) "LLM_REPLY" else "AUTO_REPLY")
                 put("timestamp", System.currentTimeMillis())
             }
             
@@ -1494,31 +1376,11 @@ class SmsReceiver : BroadcastReceiver() {
                 val answer = generateResponseFromMatches(question, matchingDocs)
                 Log.e(TAG, "✅ Generated answer based on document matches: $answer")
                 
-                // Make sure we're not returning a generic document description response
-                val cleanAnswer = answer.replace(Regex("\\[WORD DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                        .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                        .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                        .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
-                                        .replace(Regex("based on your documents"), "")
-                                        .replace(Regex("based on the documents"), "")
-                                        .replace(Regex("from your documents"), "")
-                                        .replace(Regex("in your documents"), "")
-                                        .replace(Regex("according to your documents"), "")
-                                        .replace(Regex("as per your documents"), "")
-                                        .replace(Regex("in the documents"), "")
-                                        .replace(Regex("from the documents"), "")
-                                        .trim()
+                // Use the global cleaning function to ensure consistent formatting
+                val cleanedAnswer = cleanLLMResponse(answer)
+                Log.e(TAG, "✅ Cleaned answer: $cleanedAnswer")
                 
-                // If we removed too much content, generate a more specific answer
-                if (cleanAnswer.length < 20) {
-                    Log.e(TAG, "⚠️ Cleaned answer was too short, using document-based approach")
-                    
-                    // Instead of hardcoded responses, use direct document extraction
-                    val alternative = createTopicSpecificResponse(question, documents)
-                    return if (!alternative.startsWith("AI:")) "AI: $alternative" else alternative
-                }
-                
-                return if (!cleanAnswer.startsWith("AI:")) "AI: $cleanAnswer" else cleanAnswer
+                return cleanedAnswer
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating answer manually", e)
                 return "AI: I'm not able to provide an accurate answer to that question."
@@ -1924,5 +1786,58 @@ class SmsReceiver : BroadcastReceiver() {
                 cleaned
             }
         }
+    }
+    
+    /**
+     * Clean LLM response more aggressively to remove any prompt instructions or document references
+     */
+    private fun cleanLLMResponse(response: String): String {
+        if (response.isBlank()) {
+            return "AI: I'm not able to answer that question right now."
+        }
+        
+        // First extract just the final AI response if there are multiple parts
+        val lastAIResponse = response.split("AI:").lastOrNull()?.trim()
+            ?: response.trim()
+        
+        // Start with a response that has "AI: " prefix
+        val workingResponse = if (lastAIResponse.startsWith("AI:", ignoreCase = true)) {
+            lastAIResponse
+        } else {
+            "AI: $lastAIResponse"
+        }
+        
+        // Remove all prompt instructions and formatting
+        return workingResponse
+            // Remove document content placeholders
+            .replace(Regex("\\[WORD DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("\\[PDF DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("\\[DOCUMENT\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("\\[IMAGE FILE\\].*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("\\[PDF document content\\]"), "")
+            .replace(Regex("\\[Document content\\]"), "")
+            .replace(Regex("\\[Spreadsheet data\\]"), "")
+            .replace(Regex("\\[Image content\\]"), "")
+            // Remove document phrases
+            .replace(Regex("This document (appears to )?(contains|has).*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("I'll analyze.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("Based on (your|the) documents?.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("from your documents"), "")
+            .replace(Regex("in your documents"), "")
+            .replace(Regex("according to your documents"), "")
+            .replace(Regex("as per your documents"), "")
+            .replace(Regex("in the documents"), "")
+            .replace(Regex("from the documents"), "")
+            // Remove prompt instructions that might leak
+            .replace(Regex("Answer the following question.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("based on the information above.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("Do not mention or reference.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("Keep your response concise.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("Based on these documents,.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("Respond with \"AI:\".*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("You are an AI assistant.*?(?=\\w)", RegexOption.DOT_MATCHES_ALL), "")
+            // Clean up any prompt artifacts
+            .replace(Regex("\\n\\n---.*?---\\n\\n", RegexOption.DOT_MATCHES_ALL), "")
+            .trim()
     }
 } 
