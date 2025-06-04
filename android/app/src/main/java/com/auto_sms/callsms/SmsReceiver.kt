@@ -34,7 +34,7 @@ class SmsReceiver : BroadcastReceiver() {
     // Auto-reply feature keys
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
     private val MISSED_CALL_NUMBERS_KEY = "missedCallNumbers"
-    private val AUTO_REPLY_MESSAGE = "Yes I am"
+    private val AUTO_REPLY_MESSAGE = "I am busy, please give me some time, I will contact you."
     
     // Document-based LLM auto-reply keys
     private val LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled"
@@ -147,38 +147,26 @@ class SmsReceiver : BroadcastReceiver() {
                                     if (reactContext != null) {
                                         val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
                                         if (callSmsModule != null) {
-                                            // Get the documentQA method via reflection
-                                            val documentQAMethod = CallSmsModule::class.java.getDeclaredMethod(
-                                                "documentQA",
-                                                String::class.java,
-                                                Int::class.java, 
-                                                Promise::class.java
-                                            )
-                                            documentQAMethod.isAccessible = true
-                                            
-                                            // Instead of using Promise, we'll directly call the module's method
-                                            // with our own implementation
                                             try {
-                                                Log.e(TAG, "📝 Calling documentQA with message: $messageBody")
-                                                val MAX_PASSAGES = 5
+                                                Log.e(TAG, "📝 Getting testLLM method to process message: $messageBody")
                                                 
-                                                // Create a direct method to handle the response
-                                                val directMethod = CallSmsModule::class.java.getDeclaredMethod(
+                                                // Direct approach - use the method that's already working in the app
+                                                val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
                                                     "testLLM",
                                                     String::class.java
                                                 )
-                                                directMethod.isAccessible = true
+                                                testLLMMethod.isAccessible = true
                                                 
-                                                // Call the method directly and get the result
-                                                val result = directMethod.invoke(callSmsModule, messageBody) as String?
+                                                // Call the method directly
+                                                val result = testLLMMethod.invoke(callSmsModule, messageBody)
                                                 if (result != null) {
-                                                    response = result
-                                                    Log.e(TAG, "✅ Document QA returned response directly: $response")
+                                                    response = result as String
+                                                    Log.e(TAG, "✅ Successfully got LLM response: $response")
                                                 } else {
-                                                    Log.e(TAG, "❌ Document QA returned null result")
+                                                    Log.e(TAG, "❌ No response from LLM")
                                                 }
                                             } catch (e: Exception) {
-                                                Log.e(TAG, "❌ Error calling document QA: ${e.message}", e)
+                                                Log.e(TAG, "❌ Error calling testLLM: ${e.message}", e)
                                             }
                                         } else {
                                             Log.e(TAG, "❌ CallSmsModule is null, cannot use document QA")
@@ -458,6 +446,49 @@ class SmsReceiver : BroadcastReceiver() {
                 return "AI: Unable to read your documents right now. Please try again later."
             }
             
+            // First try to use direct method from CallSmsModule for consistent behavior with UI
+            try {
+                // Try to access CallSmsModule for enhanced document retrieval
+                val reactContext = try {
+                    (context.applicationContext as ReactApplication)
+                        .reactNativeHost
+                        .reactInstanceManager
+                        .currentReactContext
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error getting ReactContext: ${e.message}")
+                    null
+                }
+                
+                if (reactContext != null) {
+                    val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
+                    if (callSmsModule != null) {
+                        try {
+                            // Get the method with reflection
+                            val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
+                                "testLLM",
+                                String::class.java
+                            )
+                            testLLMMethod.isAccessible = true
+                            
+                            // Call the method directly
+                            val result = testLLMMethod.invoke(callSmsModule, question)
+                            if (result != null) {
+                                val response = result as String
+                                Log.e(TAG, "✅ LLM - Generated response using direct CallSmsModule.testLLM: $response")
+                                return response
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error calling direct testLLM method: ${e.message}", e)
+                            // Continue with fallback methods
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error in direct CallSmsModule approach: ${e.message}", e)
+                // Continue with fallback methods
+            }
+            
+            // Continue with original implementation if direct method failed
             // Try to access CallSmsModule for enhanced document retrieval
             try {
                 val reactContext = (context.applicationContext as ReactApplication)
