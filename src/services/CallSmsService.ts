@@ -124,23 +124,63 @@ class CallSmsService {
       console.log("Generating LLM response to SMS from:", phoneNumber);
 
       let llmResponse = "";
+      let isRelevant = false;
 
       // First try to use Document QA for more context-aware responses
       try {
         console.log("Attempting Document QA for more context-aware response");
         const MAX_PASSAGES = 5; // Same as in LLMTester.tsx
 
-        llmResponse = await CallSmsModule.documentQA(message, MAX_PASSAGES);
-        console.log("Generated Document QA response:", llmResponse);
+        // Check if question is relevant to our documents (gets non-empty passages)
+        console.log("Checking if question is relevant to documents");
+        const isRelevantResult = await CallSmsModule.isQuestionRelevant(
+          message
+        );
+        isRelevant = isRelevantResult === true || isRelevantResult === "true";
+        console.log("Question relevance check result:", isRelevant);
+
+        // If question is irrelevant, use static message
+        if (!isRelevant) {
+          console.log(
+            "Question is not relevant to uploaded documents, using static response"
+          );
+          llmResponse =
+            "AI: Sorry, I am not capable of providing an answer to your question. Please try asking a different question.";
+        } else {
+          // Question is relevant, process with Document QA
+          console.log("Question is relevant, processing with Document QA");
+          llmResponse = await CallSmsModule.documentQA(message, MAX_PASSAGES);
+          console.log("Generated Document QA response:", llmResponse);
+        }
       } catch (docError) {
         console.warn(
           "Document QA failed, falling back to Basic LLM:",
           docError
         );
 
-        // Fall back to basic LLM if Document QA fails
-        llmResponse = await CallSmsModule.testLLM(message);
-        console.log("Generated Basic LLM fallback response:", llmResponse);
+        // If we couldn't determine relevance, assume irrelevant and use static message
+        llmResponse =
+          "AI: Sorry, I am not capable of providing an answer to your question. Please try asking a different question.";
+
+        // Only attempt fallback to basic LLM if there was a technical error
+        if (
+          docError &&
+          typeof docError === "object" &&
+          "message" in docError &&
+          typeof docError.message === "string" &&
+          docError.message.includes("technical")
+        ) {
+          // Fall back to basic LLM if Document QA fails due to technical reasons
+          try {
+            llmResponse = await CallSmsModule.testLLM(message);
+            console.log("Generated Basic LLM fallback response:", llmResponse);
+          } catch (llmError) {
+            console.error("Basic LLM also failed:", llmError);
+            // Keep the static message for irrelevant questions
+            llmResponse =
+              "AI: Sorry, I am not capable of providing an answer to your question. Please try asking a different question.";
+          }
+        }
       }
 
       // Send the LLM response

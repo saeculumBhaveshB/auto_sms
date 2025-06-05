@@ -2840,4 +2840,78 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             patternScore + (if (paraLower.contains(topic.lowercase())) 5 else 0)
         }?.take(300) ?: text.take(300) // Fall back to first part of text
     }
+
+    /**
+     * Check if a question is relevant to the uploaded documents
+     * Returns true if relevant, false if irrelevant
+     */
+    @ReactMethod
+    fun isQuestionRelevant(question: String, promise: Promise) {
+        try {
+            Log.d(TAG, "🔍 Checking relevance for question: $question")
+            
+            // Extract text from all documents
+            val documentsWithText = extractTextFromAllDocuments()
+            
+            // If no documents, question can't be relevant
+            if (documentsWithText.isEmpty()) {
+                Log.d(TAG, "📚 No documents available, question cannot be relevant")
+                promise.resolve(false)
+                return
+            }
+            
+            Log.d(TAG, "📚 Found ${documentsWithText.size} documents for relevance check")
+            
+            // Create passages from documents
+            val passages = createPassagesFromDocuments(documentsWithText)
+            Log.d(TAG, "📄 Created ${passages.size} passages from documents")
+            
+            // Find relevant passages for the question
+            val rankedPassages = rankPassagesByRelevance(passages, question, 3)
+            Log.d(TAG, "📊 Found ${rankedPassages.size} potentially relevant passages")
+            
+            // Check if we found any potentially relevant passages
+            if (rankedPassages.isEmpty()) {
+                Log.d(TAG, "📚 No relevant passages found, question is irrelevant")
+                promise.resolve(false)
+                return
+            }
+            
+            // Extract keywords from question
+            val keywords = extractKeywords(question)
+            Log.d(TAG, "🔑 Extracted keywords from question: ${keywords.joinToString(", ")}")
+            
+            // Count keyword matches in top passage
+            val topPassage = rankedPassages.first()
+            var keywordMatches = 0
+            
+            keywords.forEach { keyword ->
+                if (topPassage.text.lowercase().contains(keyword.lowercase())) {
+                    keywordMatches++
+                }
+            }
+            
+            Log.d(TAG, "🔢 Found $keywordMatches keyword matches in top passage")
+            
+            // Check the relevance score of the most relevant passage
+            // If the score is below our threshold, the question is irrelevant
+            val topPassageScore = topPassage.score
+            
+            // Use a lower threshold (2.5) to be more permissive
+            val RELEVANCE_THRESHOLD = 2.5f
+            
+            // Consider both the passage score and keyword matches
+            val isRelevant = (topPassageScore >= RELEVANCE_THRESHOLD) || (keywordMatches >= 2)
+            
+            Log.d(TAG, "📊 Question relevance: $isRelevant (score: $topPassageScore, keywords: $keywordMatches)")
+            
+            promise.resolve(isRelevant)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking question relevance: ${e.message}")
+            e.printStackTrace()
+            // Default to assuming it's relevant in case of errors to avoid static message
+            promise.resolve(true)
+        }
+    }
 } 
