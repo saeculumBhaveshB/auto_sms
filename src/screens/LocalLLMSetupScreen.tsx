@@ -12,6 +12,7 @@ import {
   Platform,
   Linking,
   NativeModules,
+  TextInput,
 } from "react-native";
 import { LocalLLMService, DocParserService } from "../services";
 import type { DocumentInfo, DeviceInfo } from "../services/LocalLLMService";
@@ -38,6 +39,8 @@ const LocalLLMSetupScreen: React.FC = () => {
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [textInputValue, setTextInputValue] = useState<string>("");
+  const [savingText, setSavingText] = useState<boolean>(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -351,6 +354,77 @@ const LocalLLMSetupScreen: React.FC = () => {
     else return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
+  // Handle saving text as document
+  const handleSaveTextAsDocument = async () => {
+    if (!textInputValue.trim()) {
+      Alert.alert("Error", "Please enter some text to save.");
+      return;
+    }
+
+    try {
+      setSavingText(true);
+
+      // Generate a filename with timestamp to ensure uniqueness
+      const fileName = `text_document_${Date.now()}.txt`;
+
+      // Save the text as a document
+      const result = await LocalLLMService.createSampleDocument(
+        textInputValue,
+        true
+      );
+
+      if (result) {
+        // Clear the text input
+        setTextInputValue("");
+
+        // Refresh document list with enhanced info
+        const docs = await LocalLLMService.listDocuments();
+        const enhancedDocs = await enhanceDocumentsInfo(docs);
+        setDocuments(enhancedDocs);
+
+        // Show success message
+        Alert.alert(
+          "Document Created",
+          "Your text has been saved as a document and will be used for LLM queries."
+        );
+
+        // Automatically load the model if not already loaded
+        if (!isModelLoaded) {
+          try {
+            // Get a valid local model path
+            let modelPath = await LocalLLMService.getLocalModelDirectory();
+            setSelectedModel(modelPath);
+            await LocalLLMService.saveSelectedModel(modelPath);
+
+            const success = await LocalLLMService.loadModel(modelPath);
+            setIsModelLoaded(success);
+
+            if (success) {
+              console.log("Model auto-loaded successfully after text save");
+            } else {
+              console.warn(
+                "Model auto-load using simplified mode after text save"
+              );
+            }
+          } catch (modelError) {
+            console.error(
+              "Error auto-loading model after text save:",
+              modelError
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error saving text as document:", error);
+      Alert.alert(
+        "Save Failed",
+        "Failed to save text as document. Please try again."
+      );
+    } finally {
+      setSavingText(false);
+    }
+  };
+
   // Render document item
   const renderDocumentItem = ({ item }: { item: EnhancedDocumentInfo }) => (
     <View style={styles.documentItem}>
@@ -375,6 +449,11 @@ const LocalLLMSetupScreen: React.FC = () => {
           {item.isDocx && (
             <View style={[styles.docTypeTag, styles.docxTag]}>
               <Text style={styles.docTypeText}>DOCX</Text>
+            </View>
+          )}
+          {item.name.toLowerCase().endsWith(".txt") && (
+            <View style={[styles.docTypeTag, styles.txtTag]}>
+              <Text style={styles.docTypeText}>TXT</Text>
             </View>
           )}
         </View>
@@ -456,6 +535,29 @@ const LocalLLMSetupScreen: React.FC = () => {
               Upload documents that the LLM will use to answer questions.
               Supported formats include PDF, DOC, DOCX, and TXT.
             </Text>
+
+            {/* New Text Input and Save Button */}
+            <View style={styles.textInputContainer}>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Type or paste text here to create a document..."
+                value={textInputValue}
+                onChangeText={setTextInputValue}
+                multiline={true}
+                numberOfLines={4}
+              />
+              <TouchableOpacity
+                style={styles.saveTextButton}
+                onPress={handleSaveTextAsDocument}
+                disabled={savingText || !textInputValue.trim()}
+              >
+                {savingText ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Save as Document</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={styles.uploadButton}
@@ -931,6 +1033,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     marginBottom: 12,
+  },
+  textInputContainer: {
+    marginBottom: 16,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 4,
+    padding: 12,
+    minHeight: 100,
+    marginBottom: 8,
+    backgroundColor: "#f9f9f9",
+    color: "#333",
+    textAlignVertical: "top",
+  },
+  saveTextButton: {
+    backgroundColor: "#4caf50",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  txtTag: {
+    backgroundColor: "#ff9800",
   },
 });
 
