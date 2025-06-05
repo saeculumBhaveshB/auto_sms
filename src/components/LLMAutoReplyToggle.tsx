@@ -138,36 +138,20 @@ const LLMAutoReplyToggle: React.FC = () => {
         }
       }
 
-      // Ensure at least one document exists
+      // Check if documents exist
       if (documentsCount === 0) {
-        // If no documents, create a sample one
-        console.log("No documents available. Creating sample document...");
-
-        try {
-          // Create a simple text file with sample content
-          const content = `# Sample Document
-          
-This is a sample document for testing the LLM auto-reply feature.
-
-The app provides automatic SMS replies when you miss a call.
-When someone replies to your missed call message, our local LLM can
-provide intelligent responses based on documents you upload.
-
-For more information, visit our website or contact customer support.
-`;
-
-          // Save as a temporary file
-          const filePath = await LocalLLMService.createSampleDocument(content);
-
-          if (filePath) {
-            console.log("Created sample document at:", filePath);
-            setDocumentsCount(1);
-          } else {
-            console.error("Failed to create sample document");
-          }
-        } catch (error) {
-          console.error("Error creating sample document:", error);
-        }
+        // Alert user that they need to upload documents
+        Alert.alert(
+          "Documents Required",
+          "Please upload at least one document in the LLM Setup screen first.",
+          [
+            {
+              text: "OK",
+              onPress: handleDocumentSetup,
+            },
+          ]
+        );
+        return;
       }
 
       // Enable the feature

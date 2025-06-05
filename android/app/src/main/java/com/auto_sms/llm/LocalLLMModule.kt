@@ -18,6 +18,7 @@ import kotlin.system.measureTimeMillis
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
+import java.util.Date
 
 /**
  * LocalLLMModule - Native module for running local LLM models on device
@@ -386,14 +387,33 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
         }
     }
 
+    /**
+     * Upload a document to be used for LLM queries
+     * @param sourceUri The URI of the document to upload
+     * @param fileName The name to save the document as
+     * @param createDefault Whether this is a default document (optional, default: false)
+     */
     @ReactMethod
-    fun uploadDocument(sourceUri: String, fileName: String, promise: Promise) {
+    fun uploadDocument(sourceUri: String, fileName: String, createDefault: Boolean, promise: Promise) {
+        Log.d(TAG, "📄 LLM: Uploading document from $sourceUri as $fileName (createDefault=$createDefault)")
+        
+        if (!createDefault && fileName.startsWith("sample_document_")) {
+            Log.d(TAG, "🚫 LLM: Skipping automatic document creation")
+            val result = Arguments.createMap()
+            result.putString("name", fileName)
+            result.putString("path", "")
+            result.putDouble("size", 0.0)
+            result.putDouble("lastModified", Date().time.toDouble())
+            
+            promise.resolve(result)
+            return
+        }
+        
         try {
-            Log.d(TAG, "📄 Uploading document: $fileName from URI: $sourceUri")
+            // Create documents directory if it doesn't exist
             val documentsDir = File(reactApplicationContext.filesDir, "documents")
             if (!documentsDir.exists()) {
-                documentsDir.mkdir()
-                Log.d(TAG, "📁 Created documents directory at ${documentsDir.absolutePath}")
+                documentsDir.mkdirs()
             }
             
             val inputStream = reactApplicationContext.contentResolver.openInputStream(android.net.Uri.parse(sourceUri))
@@ -425,6 +445,7 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
                 putString("path", destinationFile.absolutePath)
                 putString("name", fileName)
                 putDouble("size", destinationFile.length().toDouble())
+                putDouble("lastModified", destinationFile.lastModified().toDouble())
             }
             
             promise.resolve(result)
@@ -551,10 +572,19 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
 
     /**
      * Create a sample document for testing purposes
+     * @param createDefault Whether to create a default sample document if none is provided
      */
     @ReactMethod
-    fun createSampleDocument(promise: Promise) {
-        Log.d(TAG, "📄 LLM: Creating sample document for testing")
+    fun createSampleDocument(createDefault: Boolean, promise: Promise) {
+        Log.d(TAG, "📄 LLM: Creating sample document, createDefault=$createDefault")
+        
+        if (!createDefault) {
+            Log.d(TAG, "📝 LLM: Skipping automatic sample document creation")
+            val result = Arguments.createMap()
+            promise.resolve(result)
+            return
+        }
+        
         try {
             val documentsDir = File(reactApplicationContext.filesDir, "documents")
             if (!documentsDir.exists()) {

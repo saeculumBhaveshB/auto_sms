@@ -53,10 +53,15 @@ const LocalLLMSetupScreen: React.FC = () => {
         const info = await LocalLLMService.getDeviceInfo();
         setDeviceInfo(info);
 
-        // List documents and enhance with file type info
+        // List documents and enhance with file type info - don't create any if none exist
         const docs = await LocalLLMService.listDocuments();
-        const enhancedDocs = await enhanceDocumentsInfo(docs);
-        setDocuments(enhancedDocs);
+        // Only process documents if they exist, don't create samples
+        if (docs.length > 0) {
+          const enhancedDocs = await enhanceDocumentsInfo(docs);
+          setDocuments(enhancedDocs);
+        } else {
+          setDocuments([]);
+        }
 
         // Check if model is loaded
         const modelStatus = await LocalLLMService.isModelLoaded();

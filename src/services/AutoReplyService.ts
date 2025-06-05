@@ -74,8 +74,13 @@ class AutoReplyService {
 
   /**
    * Set LLM-based document auto-reply enabled state
+   * @param enabled Whether to enable LLM auto-reply
+   * @param createSampleDoc Whether to create a sample document if none exist (default: false)
    */
-  async setLLMAutoReplyEnabled(enabled: boolean): Promise<boolean> {
+  async setLLMAutoReplyEnabled(
+    enabled: boolean,
+    createSampleDoc: boolean = false
+  ): Promise<boolean> {
     try {
       if (Platform.OS !== "android") {
         return false;
@@ -106,9 +111,11 @@ class AutoReplyService {
 
       // Make sure the model is loaded and documents exist (only if enabling)
       if (enabled) {
-        // Try to create a sample document first, before loading model
-        console.log("[AutoReplyService] Creating sample document if needed");
-        await this.createSampleDocumentIfNeeded();
+        // Try to create a sample document if requested and needed
+        if (createSampleDoc) {
+          console.log("[AutoReplyService] Creating sample document if needed");
+          await this.createSampleDocumentIfNeeded();
+        }
 
         // Now try to load the model
         const isModelLoaded = await LocalLLMService.isModelLoaded();
@@ -195,12 +202,21 @@ class AutoReplyService {
 
   /**
    * Create a sample document if none exist
+   * @param createDefault Whether to create a default document if none exist (default: false)
    */
-  async createSampleDocumentIfNeeded(): Promise<boolean> {
+  async createSampleDocumentIfNeeded(
+    createDefault: boolean = false
+  ): Promise<boolean> {
     try {
       const documents = await LocalLLMService.listDocuments();
       if (documents.length > 0) {
         return true;
+      }
+
+      // If createDefault is false, don't create a sample document
+      if (!createDefault) {
+        console.log("Skipping sample document creation (disabled)");
+        return false;
       }
 
       console.log("Creating sample document for LLM");
@@ -227,7 +243,10 @@ Q: How does the auto-reply feature work?
 A: When you miss a call, the app sends an automatic SMS. When they reply, our local LLM provides an intelligent response based on your uploaded documents.
 `;
 
-      const result = await LocalLLMService.createSampleDocument(content);
+      const result = await LocalLLMService.createSampleDocument(
+        content,
+        createDefault
+      );
       return result !== null;
     } catch (error) {
       console.error("Error creating sample document:", error);

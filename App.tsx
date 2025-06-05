@@ -40,7 +40,7 @@ export const NavigationContext = React.createContext<NavigationContextType>({
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === "dark";
-  const [currentScreen, setCurrentScreen] = useState<Screen>("localLLM");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("permissions");
   const [initAttempts, setInitAttempts] = useState(0);
 
   const backgroundStyle = {
@@ -82,8 +82,7 @@ function App(): React.JSX.Element {
       await AutoReplyService.setAutoReplyEnabled(true);
       console.log("Auto Reply enabled via AutoReplyService");
 
-      // Create sample document if needed before enabling LLM auto-reply
-      await AutoReplyService.createSampleDocumentIfNeeded();
+      // Enable LLM auto-reply without creating sample documents
       await AutoReplyService.setLLMAutoReplyEnabled(true);
       console.log("LLM Auto Reply enabled via AutoReplyService");
 
@@ -196,11 +195,9 @@ function App(): React.JSX.Element {
           await AutoReplyService.setAutoReplyEnabled(true);
         }
 
-        // Re-enable LLM auto-reply if it was disabled
+        // Re-enable LLM auto-reply if it was disabled - without creating sample documents
         if (!llmAutoReplyEnabled) {
           console.log("LLM Auto Reply disabled, re-enabling...");
-          // Create sample document if needed before enabling LLM auto-reply
-          await AutoReplyService.createSampleDocumentIfNeeded();
           await AutoReplyService.setLLMAutoReplyEnabled(true);
         }
       } catch (error) {

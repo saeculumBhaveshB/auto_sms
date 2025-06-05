@@ -299,8 +299,11 @@ class LocalLLMService {
 
   /**
    * Pick a document and upload it
+   * @param createDefault Whether this is a default document (default: true for user-selected files)
    */
-  async pickAndUploadDocument(): Promise<DocumentInfo | null> {
+  async pickAndUploadDocument(
+    createDefault: boolean = true
+  ): Promise<DocumentInfo | null> {
     try {
       if (!isNativeModuleAvailable()) {
         console.warn(
@@ -323,10 +326,15 @@ class LocalLLMService {
         const document = results[0];
         const filename = document.name || `document_${Date.now()}`;
 
-        // Upload to native storage
+        console.log(
+          `Uploading document: ${filename} with createDefault=${createDefault}`
+        );
+
+        // Upload to native storage - pass the createDefault parameter
         const result = await LocalLLMModule.uploadDocument(
           document.uri,
-          filename
+          filename,
+          createDefault
         );
         return result;
       }
@@ -453,8 +461,13 @@ class LocalLLMService {
 
   /**
    * Create a sample document for testing
+   * @param content The content for the sample document
+   * @param createDefault Whether to create a default sample document (default: false)
    */
-  async createSampleDocument(content: string): Promise<string | null> {
+  async createSampleDocument(
+    content: string,
+    createDefault: boolean = false
+  ): Promise<string | null> {
     try {
       if (!isNativeModuleAvailable()) {
         console.warn(
@@ -475,9 +488,11 @@ class LocalLLMService {
       // Now upload this file as a document
       console.log("Uploading sample document from:", tempPath);
 
+      // Pass the createDefault parameter to the native module
       const result = await LocalLLMModule.uploadDocument(
         `file://${tempPath}`,
-        fileName
+        fileName,
+        createDefault
       );
 
       // Clean up temp file
