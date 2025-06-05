@@ -15,8 +15,6 @@ import {
 
 import {
   PermissionsStatusScreen,
-  AIDocumentScreen,
-  AIChatLogScreen,
   LocalLLMSetupScreen,
   TestAutoReplyScreen,
   LLMTestScreen,
@@ -29,13 +27,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const { CallSmsModule, AutoReplyModule } = NativeModules;
 
 // Define screen types
-type Screen =
-  | "permissions"
-  | "aiDocument"
-  | "aiChatLog"
-  | "localLLM"
-  | "testAutoReply"
-  | "llmTest";
+type Screen = "permissions" | "localLLM" | "testAutoReply" | "llmTest";
 
 // Create a navigation context for tab switching
 export type NavigationContextType = {
@@ -258,28 +250,6 @@ function App(): React.JSX.Element {
           <TouchableOpacity
             style={[
               styles.tab,
-              currentScreen === "aiDocument" && styles.activeTab,
-            ]}
-            onPress={() => navigateToTab("aiDocument")}
-          >
-            <View style={styles.tabWithBadge}>
-              <Text
-                style={[
-                  styles.tabText,
-                  currentScreen === "aiDocument" && styles.activeTabText,
-                ]}
-              >
-                AI Setup
-              </Text>
-              <View style={styles.activeBadge}>
-                <Text style={styles.badgeText}>ON</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
               currentScreen === "localLLM" && styles.activeTab,
             ]}
             onPress={() => navigateToTab("localLLM")}
@@ -291,23 +261,6 @@ function App(): React.JSX.Element {
               ]}
             >
               Local LLM
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              currentScreen === "aiChatLog" && styles.activeTab,
-            ]}
-            onPress={() => navigateToTab("aiChatLog")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                currentScreen === "aiChatLog" && styles.activeTabText,
-              ]}
-            >
-              Chat Log
             </Text>
           </TouchableOpacity>
 
@@ -334,14 +287,10 @@ function App(): React.JSX.Element {
           <PermissionsStatusScreen />
         ) : currentScreen === "testAutoReply" ? (
           <TestAutoReplyScreen />
-        ) : currentScreen === "aiDocument" ? (
-          <AIDocumentScreen />
         ) : currentScreen === "localLLM" ? (
           <LocalLLMSetupScreen />
-        ) : currentScreen === "llmTest" ? (
-          <LLMTestScreen />
         ) : (
-          <AIChatLogScreen />
+          <LLMTestScreen />
         )}
       </NavigationContext.Provider>
     </SafeAreaView>
