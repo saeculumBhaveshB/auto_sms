@@ -172,6 +172,31 @@ const LocalLLMSetupScreen: React.FC = () => {
             " DOCX files are supported, but work best with the Document QA feature.";
         }
 
+        // Automatically load the model if not already loaded
+        if (!isModelLoaded) {
+          try {
+            // Get a valid local model path
+            let modelPath = await LocalLLMService.getLocalModelDirectory();
+            setSelectedModel(modelPath);
+            await LocalLLMService.saveSelectedModel(modelPath);
+
+            console.log(
+              "Auto-loading model after document upload from path:",
+              modelPath
+            );
+            const success = await LocalLLMService.loadModel(modelPath);
+            setIsModelLoaded(success);
+
+            if (success) {
+              console.log("Model auto-loaded successfully");
+            } else {
+              console.warn("Model auto-load using simplified mode");
+            }
+          } catch (modelError) {
+            console.error("Error auto-loading model:", modelError);
+          }
+        }
+
         Alert.alert(
           "Document Uploaded",
           `Successfully uploaded ${result.name}.${fileTypeMsg} The document will be used for LLM queries.`,
@@ -225,6 +250,17 @@ const LocalLLMSetupScreen: React.FC = () => {
               const docs = await LocalLLMService.listDocuments();
               const enhancedDocs = await enhanceDocumentsInfo(docs);
               setDocuments(enhancedDocs);
+
+              // If this was the last document and model is loaded, unload the model
+              if (docs.length === 0 && isModelLoaded) {
+                console.log("Unloading model since no documents are available");
+                await LocalLLMService.unloadModel();
+                setIsModelLoaded(false);
+                Alert.alert(
+                  "Model Unloaded",
+                  "The model has been unloaded since no documents are available."
+                );
+              }
             } catch (error) {
               console.error("Error deleting document:", error);
               Alert.alert("Error", "Failed to delete document.");
@@ -466,19 +502,27 @@ const LocalLLMSetupScreen: React.FC = () => {
                 <Text style={styles.modelStatus}>
                   {isModelLoaded ? "Loaded" : "Not Loaded"}
                 </Text>
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    isModelLoaded ? styles.unloadButton : styles.loadButton,
-                  ]}
-                  onPress={toggleModelLoading}
-                >
-                  <Text style={styles.buttonText}>
-                    {isModelLoaded ? "Unload Model" : "Load Model"}
-                  </Text>
-                </TouchableOpacity>
+                {documents.length > 0 && (
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      isModelLoaded ? styles.unloadButton : styles.loadButton,
+                    ]}
+                    onPress={toggleModelLoading}
+                  >
+                    <Text style={styles.buttonText}>
+                      {isModelLoaded ? "Unload Model" : "Load Model"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
+
+            {documents.length === 0 && (
+              <Text style={styles.warningText}>
+                Upload at least one document to enable model loading.
+              </Text>
+            )}
 
             {selectedModel && (
               <Text
@@ -880,6 +924,12 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 10,
     fontWeight: "bold",
+  },
+  warningText: {
+    color: "#f44336",
+    fontSize: 14,
+    marginTop: 8,
+    marginBottom: 12,
   },
 });
 
