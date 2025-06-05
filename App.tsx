@@ -16,18 +16,18 @@ import {
 import {
   PermissionsStatusScreen,
   LocalLLMSetupScreen,
-  TestAutoReplyScreen,
   LLMTestScreen,
 } from "./src/screens";
 
 import { CallSmsService, PermissionsService } from "./src/services";
+import AutoReplyService from "./src/services/AutoReplyService";
 import { NativeModules } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { CallSmsModule, AutoReplyModule } = NativeModules;
 
 // Define screen types
-type Screen = "permissions" | "localLLM" | "testAutoReply" | "llmTest";
+type Screen = "permissions" | "localLLM" | "llmTest";
 
 // Create a navigation context for tab switching
 export type NavigationContextType = {
@@ -40,7 +40,7 @@ export const NavigationContext = React.createContext<NavigationContextType>({
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === "dark";
-  const [currentScreen, setCurrentScreen] = useState<Screen>("permissions");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("localLLM");
   const [initAttempts, setInitAttempts] = useState(0);
 
   const backgroundStyle = {
@@ -78,22 +78,18 @@ function App(): React.JSX.Element {
         console.log("Auto SMS enabled set directly in SharedPreferences");
       }
 
-      // Set Auto Reply enabled - both simple and LLM
-      if (CallSmsModule.setAutoReplyEnabled) {
-        await CallSmsModule.setAutoReplyEnabled(true);
-        console.log("Auto Reply enabled set directly in SharedPreferences");
-      }
+      // Set Auto Reply enabled - both simple and LLM using the service
+      await AutoReplyService.setAutoReplyEnabled(true);
+      console.log("Auto Reply enabled via AutoReplyService");
 
-      if (CallSmsModule.setLLMAutoReplyEnabled) {
-        await CallSmsModule.setLLMAutoReplyEnabled(true);
-        console.log("LLM Auto Reply enabled set directly in SharedPreferences");
-      }
+      // Create sample document if needed before enabling LLM auto-reply
+      await AutoReplyService.createSampleDocumentIfNeeded();
+      await AutoReplyService.setLLMAutoReplyEnabled(true);
+      console.log("LLM Auto Reply enabled via AutoReplyService");
 
       // Also set AsyncStorage values for consistency
       await AsyncStorage.setItem("@AutoSMS:AIEnabled", "true");
       await AsyncStorage.setItem("@AutoSMS:Enabled", "true");
-      await AsyncStorage.setItem("@AutoSMS:AutoReplyEnabled", "true");
-      await AsyncStorage.setItem("@AutoSMS:LLMAutoReplyEnabled", "true");
 
       return true;
     } catch (error) {
@@ -118,6 +114,21 @@ function App(): React.JSX.Element {
         // Now initialize through the service layer (which also ensures broadcast receivers are registered)
         await CallSmsService.setAIEnabled(true);
         await CallSmsService.setAutoSmsEnabled(true);
+
+        // Auto-reply features are already initialized in initializeSharedPreferences
+        // Just verify they're enabled
+        const autoReplyEnabled = await AutoReplyService.isAutoReplyEnabled();
+        const llmAutoReplyEnabled =
+          await AutoReplyService.isLLMAutoReplyEnabled();
+
+        console.log(
+          `Auto-reply status: ${autoReplyEnabled ? "enabled" : "disabled"}`
+        );
+        console.log(
+          `LLM auto-reply status: ${
+            llmAutoReplyEnabled ? "enabled" : "disabled"
+          }`
+        );
 
         // Check permissions and start monitoring if needed
         const hasPermissions =
@@ -175,23 +186,22 @@ function App(): React.JSX.Element {
 
         // Re-verify auto-reply settings are still enabled periodically
         // This ensures they don't get lost if another component changes them
-        if (
-          CallSmsModule.isAutoReplyEnabled &&
-          CallSmsModule.isLLMAutoReplyEnabled
-        ) {
-          const autoReplyEnabled = await CallSmsModule.isAutoReplyEnabled();
-          const llmAutoReplyEnabled =
-            await CallSmsModule.isLLMAutoReplyEnabled();
+        const autoReplyEnabled = await AutoReplyService.isAutoReplyEnabled();
+        const llmAutoReplyEnabled =
+          await AutoReplyService.isLLMAutoReplyEnabled();
 
-          if (!autoReplyEnabled) {
-            console.log("Auto Reply disabled, re-enabling...");
-            await CallSmsModule.setAutoReplyEnabled(true);
-          }
+        // Re-enable auto-reply if it was disabled
+        if (!autoReplyEnabled) {
+          console.log("Auto Reply disabled, re-enabling...");
+          await AutoReplyService.setAutoReplyEnabled(true);
+        }
 
-          if (!llmAutoReplyEnabled) {
-            console.log("LLM Auto Reply disabled, re-enabling...");
-            await CallSmsModule.setLLMAutoReplyEnabled(true);
-          }
+        // Re-enable LLM auto-reply if it was disabled
+        if (!llmAutoReplyEnabled) {
+          console.log("LLM Auto Reply disabled, re-enabling...");
+          // Create sample document if needed before enabling LLM auto-reply
+          await AutoReplyService.createSampleDocumentIfNeeded();
+          await AutoReplyService.setLLMAutoReplyEnabled(true);
         }
       } catch (error) {
         console.error("Error in service check interval:", error);
@@ -233,23 +243,6 @@ function App(): React.JSX.Element {
           <TouchableOpacity
             style={[
               styles.tab,
-              currentScreen === "testAutoReply" && styles.activeTab,
-            ]}
-            onPress={() => navigateToTab("testAutoReply")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                currentScreen === "testAutoReply" && styles.activeTabText,
-              ]}
-            >
-              Auto Reply
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
               currentScreen === "localLLM" && styles.activeTab,
             ]}
             onPress={() => navigateToTab("localLLM")}
@@ -285,8 +278,6 @@ function App(): React.JSX.Element {
         {/* Screen Content */}
         {currentScreen === "permissions" ? (
           <PermissionsStatusScreen />
-        ) : currentScreen === "testAutoReply" ? (
-          <TestAutoReplyScreen />
         ) : currentScreen === "localLLM" ? (
           <LocalLLMSetupScreen />
         ) : (
