@@ -15,7 +15,6 @@ import {
 
 import {
   PermissionsStatusScreen,
-  AutoSmsStatusScreen,
   AIDocumentScreen,
   AIChatLogScreen,
   LocalLLMSetupScreen,
@@ -23,12 +22,15 @@ import {
   LLMTestScreen,
 } from "./src/screens";
 
-import { CallSmsService } from "./src/services";
+import { CallSmsService, PermissionsService } from "./src/services";
+import { NativeModules } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const { CallSmsModule, AutoReplyModule } = NativeModules;
 
 // Define screen types
 type Screen =
   | "permissions"
-  | "smsStatus"
   | "aiDocument"
   | "aiChatLog"
   | "localLLM"
@@ -46,7 +48,8 @@ export const NavigationContext = React.createContext<NavigationContextType>({
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === "dark";
-  const [currentScreen, setCurrentScreen] = useState<Screen>("smsStatus");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("permissions");
+  const [initAttempts, setInitAttempts] = useState(0);
 
   const backgroundStyle = {
     backgroundColor: isDarkMode ? "#000000" : "#F5F5F5",
@@ -65,25 +68,148 @@ function App(): React.JSX.Element {
     [navigateToTab]
   );
 
+  // Set up native SharedPreferences directly (to ensure they are set before any component uses them)
+  const initializeSharedPreferences = useCallback(async () => {
+    try {
+      // Make direct SharedPreferences calls to ensure settings are set properly
+      console.log("Initializing SharedPreferences directly...");
+
+      // Set AI enabled
+      if (CallSmsModule.setAIEnabled) {
+        await CallSmsModule.setAIEnabled(true);
+        console.log("AI enabled set directly in SharedPreferences");
+      }
+
+      // Set Auto SMS enabled
+      if (CallSmsModule.setAutoSmsEnabled) {
+        await CallSmsModule.setAutoSmsEnabled(true);
+        console.log("Auto SMS enabled set directly in SharedPreferences");
+      }
+
+      // Set Auto Reply enabled - both simple and LLM
+      if (CallSmsModule.setAutoReplyEnabled) {
+        await CallSmsModule.setAutoReplyEnabled(true);
+        console.log("Auto Reply enabled set directly in SharedPreferences");
+      }
+
+      if (CallSmsModule.setLLMAutoReplyEnabled) {
+        await CallSmsModule.setLLMAutoReplyEnabled(true);
+        console.log("LLM Auto Reply enabled set directly in SharedPreferences");
+      }
+
+      // Also set AsyncStorage values for consistency
+      await AsyncStorage.setItem("@AutoSMS:AIEnabled", "true");
+      await AsyncStorage.setItem("@AutoSMS:Enabled", "true");
+      await AsyncStorage.setItem("@AutoSMS:AutoReplyEnabled", "true");
+      await AsyncStorage.setItem("@AutoSMS:LLMAutoReplyEnabled", "true");
+
+      return true;
+    } catch (error) {
+      console.error("Error initializing SharedPreferences:", error);
+      return false;
+    }
+  }, []);
+
   // Initialize app settings and process pending messages on app start
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Always ensure AI is enabled
+        console.log(`App initialization attempt #${initAttempts + 1}`);
+
+        // First, initialize SharedPreferences directly
+        const prefsInitialized = await initializeSharedPreferences();
+
+        if (!prefsInitialized) {
+          console.warn("Failed to initialize SharedPreferences directly");
+        }
+
+        // Now initialize through the service layer (which also ensures broadcast receivers are registered)
         await CallSmsService.setAIEnabled(true);
+        await CallSmsService.setAutoSmsEnabled(true);
+
+        // Check permissions and start monitoring if needed
+        const hasPermissions =
+          await PermissionsService.areAllPermissionsGranted();
+        if (hasPermissions) {
+          // Start monitoring calls if not already
+          const isMonitoring = CallSmsService.isMonitoringCalls();
+          if (!isMonitoring) {
+            await CallSmsService.startMonitoringCalls();
+          }
+        }
 
         // Process any pending messages
         const processed = await CallSmsService.processPendingMessages();
         if (processed) {
           console.log("Processed pending SMS messages");
         }
+
+        // Mark initialization as successful
+        setInitAttempts(0);
       } catch (error) {
         console.error("Error initializing app:", error);
+
+        // If initialization failed and we haven't tried too many times, retry after a delay
+        if (initAttempts < 3) {
+          console.log(
+            `Retrying initialization in 1 second (attempt ${
+              initAttempts + 1
+            }/3)`
+          );
+          setTimeout(() => {
+            setInitAttempts((prev) => prev + 1);
+          }, 1000);
+        }
       }
     };
 
+    // Run initialization
     initializeApp();
-  }, []);
+
+    // Set up permission check and service check interval
+    const serviceCheckInterval = setInterval(async () => {
+      try {
+        // Check permissions
+        const hasPermissions =
+          await PermissionsService.areAllPermissionsGranted();
+
+        if (hasPermissions) {
+          // Make sure call monitoring is active if we have permissions
+          const isMonitoring = CallSmsService.isMonitoringCalls();
+          if (!isMonitoring) {
+            await CallSmsService.startMonitoringCalls();
+          }
+        }
+
+        // Re-verify auto-reply settings are still enabled periodically
+        // This ensures they don't get lost if another component changes them
+        if (
+          CallSmsModule.isAutoReplyEnabled &&
+          CallSmsModule.isLLMAutoReplyEnabled
+        ) {
+          const autoReplyEnabled = await CallSmsModule.isAutoReplyEnabled();
+          const llmAutoReplyEnabled =
+            await CallSmsModule.isLLMAutoReplyEnabled();
+
+          if (!autoReplyEnabled) {
+            console.log("Auto Reply disabled, re-enabling...");
+            await CallSmsModule.setAutoReplyEnabled(true);
+          }
+
+          if (!llmAutoReplyEnabled) {
+            console.log("LLM Auto Reply disabled, re-enabling...");
+            await CallSmsModule.setLLMAutoReplyEnabled(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error in service check interval:", error);
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(serviceCheckInterval);
+    };
+  }, [initAttempts, initializeSharedPreferences]);
 
   return (
     <SafeAreaView style={backgroundStyle}>
@@ -109,23 +235,6 @@ function App(): React.JSX.Element {
               ]}
             >
               Permissions
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              currentScreen === "smsStatus" && styles.activeTab,
-            ]}
-            onPress={() => navigateToTab("smsStatus")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                currentScreen === "smsStatus" && styles.activeTabText,
-              ]}
-            >
-              Auto SMS
             </Text>
           </TouchableOpacity>
 
@@ -223,8 +332,6 @@ function App(): React.JSX.Element {
         {/* Screen Content */}
         {currentScreen === "permissions" ? (
           <PermissionsStatusScreen />
-        ) : currentScreen === "smsStatus" ? (
-          <AutoSmsStatusScreen />
         ) : currentScreen === "testAutoReply" ? (
           <TestAutoReplyScreen />
         ) : currentScreen === "aiDocument" ? (
