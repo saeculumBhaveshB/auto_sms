@@ -22,7 +22,6 @@ const AutoSmsStatusScreen: React.FC = () => {
   const [isAutoSmsEnabled, setIsAutoSmsEnabled] = useState<boolean>(true);
   const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
   const [permissionsGranted, setPermissionsGranted] = useState<boolean>(false);
-  const [isAIEnabled, setIsAIEnabled] = useState<boolean>(false);
   const [initialSmsMessage, setInitialSmsMessage] = useState<string>("");
 
   // Get navigation context
@@ -230,28 +229,14 @@ const AutoSmsStatusScreen: React.FC = () => {
    */
   const loadAISettings = useCallback(async () => {
     try {
-      // Load AI enabled setting
-      const aiEnabled = await CallSmsService.isAIEnabled();
-      setIsAIEnabled(aiEnabled);
+      // Always set AI enabled to true
+      await CallSmsService.setAIEnabled(true);
 
       // Load initial SMS message
       const message = await CallSmsService.getInitialSmsMessage();
       setInitialSmsMessage(message);
     } catch (error) {
       console.error("Error loading AI settings:", error);
-    }
-  }, []);
-
-  /**
-   * Toggle AI SMS setting
-   */
-  const toggleAI = useCallback(async (value: boolean) => {
-    try {
-      setIsAIEnabled(value);
-      await CallSmsService.setAIEnabled(value);
-    } catch (error) {
-      console.error("Error toggling AI SMS:", error);
-      Alert.alert("Error", "Failed to change AI SMS setting");
     }
   }, []);
 
@@ -413,29 +398,20 @@ const AutoSmsStatusScreen: React.FC = () => {
         <View style={styles.divider} />
 
         <View style={styles.settingRow}>
-          <Text style={styles.settingText}>Enable AI responses</Text>
-          <Switch
-            value={isAIEnabled}
-            onValueChange={toggleAI}
-            trackColor={{ false: "#767577", true: "#81b0ff" }}
-            thumbColor={isAIEnabled ? "#4caf50" : "#f4f3f4"}
-          />
+          <Text style={styles.settingText}>AI responses</Text>
+          <Text style={styles.enabledBadgeText}>ENABLED</Text>
         </View>
 
         <Text style={styles.aiInfoText}>
-          {isAIEnabled
-            ? "✓ AI will respond to incoming SMS messages"
-            : "● AI responses disabled"}
+          ✓ AI will respond to incoming SMS messages
         </Text>
 
-        {isAIEnabled && (
-          <TouchableOpacity
-            style={styles.aiSetupButton}
-            onPress={() => navigation.navigateToTab("aiDocument")}
-          >
-            <Text style={styles.aiSetupButtonText}>Configure AI</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.aiSetupButton}
+          onPress={() => navigation.navigateToTab("aiDocument")}
+        >
+          <Text style={styles.aiSetupButtonText}>Configure AI</Text>
+        </TouchableOpacity>
       </View>
 
       {!permissionsGranted && isAutoSmsEnabled && (
@@ -653,6 +629,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#555",
     marginTop: 4,
+  },
+  enabledBadgeText: {
+    color: "#4caf50",
+    fontWeight: "bold",
+    fontSize: 14,
   },
   aiSetupButton: {
     backgroundColor: "#4caf50",

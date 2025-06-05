@@ -268,7 +268,11 @@ const PermissionsStatusScreen: React.FC = () => {
           <Text style={styles.autoReplyInfoText}>
             The Auto Reply feature requires the RECEIVE_SMS permission to
             automatically respond to incoming messages. This is crucial for the
-            app to detect when someone replies to your missed call message.
+            AI to detect when someone replies to your missed call message and
+            provide intelligent responses.
+          </Text>
+          <Text style={styles.autoReplyInfoHighlight}>
+            AI responses are always enabled to provide the best user experience.
           </Text>
         </View>
 
@@ -284,9 +288,17 @@ const PermissionsStatusScreen: React.FC = () => {
                 <Text style={styles.allGrantedText}>
                   ✅ All required permissions are granted!
                 </Text>
+                <Text style={styles.allGrantedSubtext}>
+                  AI responses are active and ready to help your contacts when
+                  you're busy.
+                </Text>
               </View>
             ) : (
               <View style={styles.requestAllContainer}>
+                <Text style={styles.requestAllText}>
+                  Please grant all permissions for the best experience with AI
+                  responses.
+                </Text>
                 <TouchableOpacity
                   style={styles.requestAllButton}
                   onPress={requestAllPermissions}
@@ -546,6 +558,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1565c0",
     lineHeight: 20,
+  },
+  autoReplyInfoHighlight: {
+    fontSize: 14,
+    color: "#1565c0",
+    lineHeight: 20,
+    fontWeight: "bold",
+    marginTop: 8,
+  },
+  allGrantedSubtext: {
+    fontSize: 14,
+    color: "#2e7d32",
+    marginTop: 8,
+  },
+  requestAllText: {
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 12,
+    textAlign: "center",
   },
 });
 

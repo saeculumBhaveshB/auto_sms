@@ -46,7 +46,7 @@ export const NavigationContext = React.createContext<NavigationContextType>({
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === "dark";
-  const [currentScreen, setCurrentScreen] = useState<Screen>("permissions");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("smsStatus");
 
   const backgroundStyle = {
     backgroundColor: isDarkMode ? "#000000" : "#F5F5F5",
@@ -65,20 +65,24 @@ function App(): React.JSX.Element {
     [navigateToTab]
   );
 
-  // Process pending SMS messages on app start
+  // Initialize app settings and process pending messages on app start
   useEffect(() => {
-    const processPendingMessages = async () => {
+    const initializeApp = async () => {
       try {
+        // Always ensure AI is enabled
+        await CallSmsService.setAIEnabled(true);
+
+        // Process any pending messages
         const processed = await CallSmsService.processPendingMessages();
         if (processed) {
           console.log("Processed pending SMS messages");
         }
       } catch (error) {
-        console.error("Error processing pending messages:", error);
+        console.error("Error initializing app:", error);
       }
     };
 
-    processPendingMessages();
+    initializeApp();
   }, []);
 
   return (
@@ -149,14 +153,19 @@ function App(): React.JSX.Element {
             ]}
             onPress={() => navigateToTab("aiDocument")}
           >
-            <Text
-              style={[
-                styles.tabText,
-                currentScreen === "aiDocument" && styles.activeTabText,
-              ]}
-            >
-              AI Setup
-            </Text>
+            <View style={styles.tabWithBadge}>
+              <Text
+                style={[
+                  styles.tabText,
+                  currentScreen === "aiDocument" && styles.activeTabText,
+                ]}
+              >
+                AI Setup
+              </Text>
+              <View style={styles.activeBadge}>
+                <Text style={styles.badgeText}>ON</Text>
+              </View>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -260,6 +269,24 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: "#2196f3",
+  },
+  tabWithBadge: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeBadge: {
+    position: "absolute",
+    top: -8,
+    right: -15,
+    backgroundColor: "#4caf50",
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  badgeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
   },
 });
 

@@ -434,15 +434,18 @@ class CallSmsService {
    */
   async setAIEnabled(enabled: boolean): Promise<void> {
     try {
+      // Always set to true, ignoring the parameter
+      enabled = true;
+
       // Save setting to AsyncStorage
-      await AsyncStorage.setItem(AI_SMS_ENABLED_KEY, enabled.toString());
+      await AsyncStorage.setItem(AI_SMS_ENABLED_KEY, "true");
 
       // Apply setting to native module
       if (Platform.OS === "android") {
-        await NativeModules.CallSmsModule.setAIEnabled(enabled);
+        await NativeModules.CallSmsModule.setAIEnabled(true);
       }
 
-      this.notifyListeners("settingsChanged", { aiEnabled: enabled });
+      this.notifyListeners("settingsChanged", { aiEnabled: true });
     } catch (error) {
       console.error("Error setting AI SMS enabled:", error);
     }
@@ -452,25 +455,8 @@ class CallSmsService {
    * Check if AI SMS is enabled
    */
   async isAIEnabled(): Promise<boolean> {
-    try {
-      if (Platform.OS === "android") {
-        try {
-          return await NativeModules.CallSmsModule.isAIEnabled();
-        } catch (e) {
-          console.warn(
-            "Error getting AI setting from native module, falling back to AsyncStorage",
-            e
-          );
-        }
-      }
-
-      // Fallback to AsyncStorage
-      const value = await AsyncStorage.getItem(AI_SMS_ENABLED_KEY);
-      return value === null ? false : value === "true"; // Default to false
-    } catch (error) {
-      console.error("Error checking if AI SMS is enabled:", error);
-      return false;
-    }
+    // Always return true to ensure AI is always enabled
+    return true;
   }
 
   /**
