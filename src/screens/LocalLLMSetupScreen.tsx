@@ -504,6 +504,7 @@ const LocalLLMSetupScreen: React.FC = () => {
                 </Text>
                 {documents.length > 0 && (
                   <TouchableOpacity
+                    disabled={true}
                     style={[
                       styles.button,
                       isModelLoaded ? styles.unloadButton : styles.loadButton,
