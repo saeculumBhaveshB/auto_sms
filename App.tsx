@@ -13,11 +13,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 
-import {
-  PermissionsStatusScreen,
-  LocalLLMSetupScreen,
-  LLMTestScreen,
-} from "./src/screens";
+import { PermissionsStatusScreen, LocalLLMSetupScreen } from "./src/screens";
 
 import { CallSmsService, PermissionsService } from "./src/services";
 import AutoReplyService from "./src/services/AutoReplyService";
@@ -27,7 +23,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const { CallSmsModule, AutoReplyModule } = NativeModules;
 
 // Define screen types
-type Screen = "permissions" | "localLLM" | "llmTest";
+type Screen = "permissions" | "localLLM";
 
 // Create a navigation context for tab switching
 export type NavigationContextType = {
@@ -253,32 +249,13 @@ function App(): React.JSX.Element {
               Local LLM
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              currentScreen === "llmTest" && styles.activeTab,
-            ]}
-            onPress={() => navigateToTab("llmTest")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                currentScreen === "llmTest" && styles.activeTabText,
-              ]}
-            >
-              LLM Test
-            </Text>
-          </TouchableOpacity>
         </View>
 
         {/* Screen Content */}
         {currentScreen === "permissions" ? (
           <PermissionsStatusScreen />
-        ) : currentScreen === "localLLM" ? (
-          <LocalLLMSetupScreen />
         ) : (
-          <LLMTestScreen />
+          <LocalLLMSetupScreen />
         )}
       </NavigationContext.Provider>
     </SafeAreaView>

@@ -214,7 +214,7 @@ const LocalLLMSetupScreen: React.FC = () => {
                   onPress: () => {
                     Alert.alert(
                       "DOCX File Support",
-                      "DOCX files are supported but may have limitations with the Basic LLM mode. For best results with DOCX files, use the Document QA feature in the LLM Tester screen.",
+                      "DOCX files are supported but may have limitations with the Basic LLM mode. For best results with DOCX files, use the Document QA feature.",
                       [{ text: "Got it" }]
                     );
                   },
