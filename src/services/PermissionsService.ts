@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Platform, NativeModules } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   PERMISSIONS,
@@ -78,6 +78,29 @@ export type PermissionStatus =
   | "limited"
   | "never_ask_again";
 
+// Define interface for permissions status
+export interface PermissionsStatus {
+  [key: string]: PermissionStatus;
+}
+
+// Default permissions status
+export const DEFAULT_PERMISSIONS_STATUS: PermissionsStatus = {
+  callLog: "unavailable",
+  phoneState: "unavailable",
+  sendSms: "unavailable",
+  readSms: "unavailable",
+  readContacts: "unavailable",
+  autoReply: "unavailable",
+};
+
+// Storage key for permissions
+const PERMISSIONS_STORAGE_KEY = "@AutoSMS:PermissionsStatus";
+
+// Android 15 (API level 35) detection
+export const isAndroid15OrHigher = (): boolean => {
+  return Platform.OS === "android" && Platform.Version >= 35;
+};
+
 /**
  * Service to manage app permissions
  */
@@ -91,6 +114,26 @@ class PermissionsService {
     // Only Android is supported
     if (Platform.OS !== "android") {
       return "unavailable";
+    }
+
+    // For Android 15+, special handling for SMS-related permissions
+    if (isAndroid15OrHigher()) {
+      if (
+        permissionType === "sendSms" ||
+        permissionType === "readSms" ||
+        permissionType === "autoReply"
+      ) {
+        // For SMS permissions on Android 15+, we need to check if we're the default SMS handler
+        try {
+          const isSmsHandler = await this.isDefaultSmsHandler();
+          if (!isSmsHandler) {
+            return "unavailable";
+          }
+        } catch (error) {
+          console.error("Error checking if default SMS handler:", error);
+          return "unavailable";
+        }
+      }
     }
 
     const permissionInfo = REQUIRED_PERMISSIONS.find(
@@ -120,6 +163,32 @@ class PermissionsService {
       return "unavailable";
     }
 
+    // For Android 15+, special handling for SMS-related permissions
+    if (isAndroid15OrHigher()) {
+      if (
+        permissionType === "sendSms" ||
+        permissionType === "readSms" ||
+        permissionType === "autoReply"
+      ) {
+        // For SMS permissions on Android 15+, we need to be the default SMS handler
+        try {
+          const isSmsHandler = await this.isDefaultSmsHandler();
+          if (!isSmsHandler) {
+            // Request to become default SMS handler
+            const becameDefault = await this.requestDefaultSmsHandler();
+            if (!becameDefault) {
+              return "unavailable";
+            }
+            // Give the system more time to process the change - increased from 500ms to 2000ms
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        } catch (error) {
+          console.error("Error handling default SMS handler:", error);
+          return "unavailable";
+        }
+      }
+    }
+
     const permissionInfo = REQUIRED_PERMISSIONS.find(
       (p) => p.key === permissionType
     );
@@ -128,7 +197,36 @@ class PermissionsService {
     }
 
     try {
-      const result = await request(permissionInfo.androidPermission);
+      // For SMS permissions on Android 15+, special handling to avoid crashes
+      let result;
+      if (
+        isAndroid15OrHigher() &&
+        (permissionType === "sendSms" ||
+          permissionType === "readSms" ||
+          permissionType === "autoReply")
+      ) {
+        try {
+          // Double-check we're still the default SMS handler
+          const isStillDefault = await this.isDefaultSmsHandler();
+          if (!isStillDefault) {
+            console.warn(
+              "Lost default SMS handler status before requesting permission"
+            );
+            return "unavailable";
+          }
+
+          // Try to request the permission with error handling
+          result = await request(permissionInfo.androidPermission);
+        } catch (error) {
+          console.error(
+            `Error requesting SMS permission on Android 15+: ${error}`
+          );
+          return "unavailable";
+        }
+      } else {
+        result = await request(permissionInfo.androidPermission);
+      }
+
       const status = this.mapPermissionResult(result);
 
       // Store the result
@@ -221,6 +319,13 @@ class PermissionsService {
   }
 
   /**
+   * Check if SMS permission is available based on Android version
+   */
+  isSmsPermissionAvailable(): boolean {
+    return Platform.OS === "android" && !isAndroid15OrHigher();
+  }
+
+  /**
    * Open app settings
    * @returns Promise resolving when settings are opened
    */
@@ -244,15 +349,14 @@ class PermissionsService {
     }
 
     try {
-      const updatedStatus: PermissionsStatus = {
-        READ_CALL_LOG: await this.checkPermission("READ_CALL_LOG"),
-        CALL_PHONE: await this.checkPermission("CALL_PHONE"),
-        ANSWER_PHONE_CALLS: await this.checkPermission("ANSWER_PHONE_CALLS"),
-        READ_CONTACTS: await this.checkPermission("READ_CONTACTS"),
-        SEND_SMS: await this.checkPermission("SEND_SMS"),
-        READ_SMS: await this.checkPermission("READ_SMS"),
-        POST_NOTIFICATIONS: await this.checkPermission("POST_NOTIFICATIONS"),
-      };
+      const updatedStatus: PermissionsStatus = {};
+
+      // Check each permission
+      for (const permission of REQUIRED_PERMISSIONS) {
+        updatedStatus[permission.key] = await this.checkPermission(
+          permission.key
+        );
+      }
 
       // Save the updated status to AsyncStorage
       await AsyncStorage.setItem(
@@ -264,6 +368,70 @@ class PermissionsService {
     } catch (error) {
       console.error("Error refreshing permissions status:", error);
       return DEFAULT_PERMISSIONS_STATUS;
+    }
+  }
+
+  /**
+   * Check if app is default SMS handler
+   */
+  async isDefaultSmsHandler(): Promise<boolean> {
+    if (Platform.OS !== "android") {
+      return false;
+    }
+
+    try {
+      return await NativeModules.CallSmsModule.isDefaultSmsHandler();
+    } catch (error) {
+      console.error("Error checking default SMS handler:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Request to become default SMS handler
+   */
+  async requestDefaultSmsHandler(): Promise<boolean> {
+    if (Platform.OS !== "android") {
+      return false;
+    }
+
+    try {
+      // Check if we're already the default SMS handler
+      const isDefault = await this.isDefaultSmsHandler();
+      if (isDefault) {
+        console.log("App is already the default SMS handler");
+        return true;
+      }
+
+      console.log("Requesting to become default SMS handler");
+
+      // Request to become default SMS handler
+      const result =
+        await NativeModules.CallSmsModule.requestDefaultSmsHandler();
+      console.log("Default SMS handler request initiated:", result);
+
+      // Give the system time to process the change before checking
+      // This delay needs to be long enough for the user to see and interact with the system dialog
+      return new Promise((resolve) => {
+        // Check status after a delay to allow user interaction
+        setTimeout(async () => {
+          try {
+            // Check if we've become the default SMS handler
+            const checkResult = await this.isDefaultSmsHandler();
+            console.log("Result of default SMS handler check:", checkResult);
+            resolve(checkResult);
+          } catch (error) {
+            console.error(
+              "Error checking if app became default SMS handler:",
+              error
+            );
+            resolve(false);
+          }
+        }, 5000); // Give more time for user to interact with the system dialog
+      });
+    } catch (error) {
+      console.error("Error requesting to become default SMS handler:", error);
+      return false;
     }
   }
 }

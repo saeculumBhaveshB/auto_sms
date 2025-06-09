@@ -31,8 +31,7 @@ import java.util.TimerTask
 import kotlinx.coroutines.runBlocking
 import com.auto_sms.docextractor.DocExtractorHelper
 
-class CallSmsModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+class CallSmsModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
     private val TAG = "CallSmsModule"
     
@@ -54,6 +53,25 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     private var callStart: Long = 0L
     private var missedCallDetectedAt: Long = 0L
     
+    // Static variable to hold the ReactContext instance
+    companion object {
+        private var reactContextInstance: ReactApplicationContext? = null
+        
+        /**
+         * Get the current React Context instance
+         * This is used by the SmsReceiver to send events to React Native
+         */
+        @JvmStatic
+        fun getReactContextInstance(): ReactApplicationContext? {
+            return reactContextInstance
+        }
+    }
+    
+    init {
+        // Store the React Context instance when module is initialized
+        reactContextInstance = reactContext
+    }
+    
     override fun getName(): String {
         return "CallSmsModule"
     }
@@ -62,9 +80,130 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         val context = reactApplicationContext
         val readCallLog = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
         val readPhoneState = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        val sendSms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+        
+        // For SMS permissions, check differently based on Android version
+        if (Build.VERSION.SDK_INT >= 35) {
+            // On Android 15+, only check if we're the default SMS handler
+            return readCallLog && readPhoneState && isDefaultSmsHandlerSync()
+        } else {
+            // On older Android versions, check for SEND_SMS permission
+            val sendSms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+            return readCallLog && readPhoneState && sendSms
+        }
+    }
 
-        return readCallLog && readPhoneState && sendSms
+    // Add a synchronous version of isDefaultSmsHandler
+    private fun isDefaultSmsHandlerSync(): Boolean {
+        val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(reactApplicationContext)
+        val ourPackage = reactApplicationContext.packageName
+        return defaultSmsPackage == ourPackage
+    }
+    
+    // Fix the sendSmsForMissedCall function to handle Promise properly
+    private fun sendSmsForMissedCall(phoneNumber: String) {
+        try {
+            // Check if auto SMS is enabled
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val autoSmsEnabled = sharedPrefs.getBoolean("@AutoSMS:Enabled", true)
+            
+            if (!autoSmsEnabled) {
+                Log.d(TAG, "Auto SMS is disabled. Not sending message for missed call.")
+                return
+            }
+            
+            // Get initial message from preferences
+            val message = sharedPrefs.getString("@AutoSMS:InitialMessage", DEFAULT_MESSAGE) ?: DEFAULT_MESSAGE
+            
+            // Check if we can send SMS (permission and Android version)
+            if (Build.VERSION.SDK_INT >= 35) {
+                // For Android 15+, we need to be the default SMS handler or use intent-based approach
+                val isDefault = isDefaultSmsHandlerSync()
+                
+                if (isDefault) {
+                    // Use direct SMS API since we're the default handler
+                    // Don't use sendSmsDirectly since it requires a Promise
+                    try {
+                        val smsManager = SmsManager.getDefault()
+                        
+                        // Split message if it's too long
+                        val parts = smsManager.divideMessage(message)
+                        
+                        // Send SMS
+                        if (parts.size > 1) {
+                            // For multipart messages
+                            smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                        } else {
+                            // For single-part messages
+                            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                        }
+                        
+                        // Create data for event
+                        val eventData = Arguments.createMap().apply {
+                            putString("phoneNumber", phoneNumber)
+                            putString("message", message)
+                            putString("timestamp", System.currentTimeMillis().toString())
+                        }
+                        
+                        // Emit event
+                        sendEvent("onSmsSent", eventData)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error sending direct SMS for missed call: ${e.message}", e)
+                    }
+                } else {
+                    // Use intent-based approach
+                    val intent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = Uri.parse("smsto:$phoneNumber")
+                        putExtra("sms_body", message)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    
+                    if (intent.resolveActivity(reactApplicationContext.packageManager) != null) {
+                        reactApplicationContext.startActivity(intent)
+                        
+                        // Create data for event
+                        val eventData = Arguments.createMap().apply {
+                            putString("phoneNumber", phoneNumber)
+                            putString("message", message)
+                            putString("timestamp", System.currentTimeMillis().toString())
+                        }
+                        
+                        // Emit event
+                        sendEvent("onSmsSent", eventData)
+                    }
+                }
+            } else {
+                // For older Android versions, use direct SMS API
+                try {
+                    val smsManager = SmsManager.getDefault()
+                    
+                    // Split message if it's too long
+                    val parts = smsManager.divideMessage(message)
+                    
+                    // Send SMS
+                    if (parts.size > 1) {
+                        // For multipart messages
+                        smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                    } else {
+                        // For single-part messages
+                        smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                    }
+                    
+                    // Create data for event
+                    val eventData = Arguments.createMap().apply {
+                        putString("phoneNumber", phoneNumber)
+                        putString("message", message)
+                        putString("timestamp", System.currentTimeMillis().toString())
+                    }
+                    
+                    // Emit event
+                    sendEvent("onSmsSent", eventData)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending direct SMS for missed call: ${e.message}", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)
+        }
     }
 
     @ReactMethod
@@ -316,6 +455,11 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun sendSms(phoneNumber: String, message: String, promise: Promise) {
+        if (phoneNumber.isEmpty()) {
+            promise.reject("INVALID_PHONE_NUMBER", "Phone number cannot be empty")
+            return
+        }
+
         if (!hasRequiredPermissions()) {
             val missingPermissions = getMissingPermissions()
             Log.e(TAG, "Missing permissions for sending SMS: $missingPermissions")
@@ -328,10 +472,67 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
 
         try {
             val smsMessage = if (message.isEmpty()) DEFAULT_MESSAGE else message
+            
+            // Use different approaches based on Android version
+            if (Build.VERSION.SDK_INT >= 35) {
+                // On Android 15+, use intent-based approach to send SMS
+                sendSmsViaIntent(phoneNumber, smsMessage, promise)
+            } else {
+                // On older Android versions, use direct SMS API
+                sendSmsDirectly(phoneNumber, smsMessage, promise)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending SMS: ${e.message}", e)
+            promise.reject("SEND_SMS_ERROR", "Failed to send SMS: ${e.message}")
+        }
+    }
+
+    /**
+     * Send SMS via intent (for Android 15+)
+     */
+    private fun sendSmsViaIntent(phoneNumber: String, message: String, promise: Promise) {
+        try {
+            // Create intent to send SMS via the system SMS app
+            val intent = Intent(Intent.ACTION_SENDTO).apply {
+                data = Uri.parse("smsto:$phoneNumber")
+                putExtra("sms_body", message)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            
+            // Check if the intent can be resolved
+            if (intent.resolveActivity(reactApplicationContext.packageManager) != null) {
+                reactApplicationContext.startActivity(intent)
+                
+                // Create data for event
+                val eventData = Arguments.createMap().apply {
+                    putString("phoneNumber", phoneNumber)
+                    putString("message", message)
+                    putString("timestamp", System.currentTimeMillis().toString())
+                }
+                
+                // Emit event
+                sendEvent("onSmsSent", eventData)
+                
+                promise.resolve(true)
+            } else {
+                Log.e(TAG, "No app can handle SMS intent")
+                promise.reject("SEND_SMS_ERROR", "No app can handle SMS intent")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending SMS via intent: ${e.message}", e)
+            promise.reject("SEND_SMS_ERROR", "Failed to send SMS via intent: ${e.message}")
+        }
+    }
+
+    /**
+     * Send SMS directly using SmsManager (for Android <= 14)
+     */
+    private fun sendSmsDirectly(phoneNumber: String, message: String, promise: Promise) {
+        try {
             val smsManager = SmsManager.getDefault()
             
             // Split message if it's too long
-            val parts = smsManager.divideMessage(smsMessage)
+            val parts = smsManager.divideMessage(message)
             
             val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
             
@@ -353,15 +554,14 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
                 }
                 smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
+                smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
             }
             
             // Create data for event
             val eventData = Arguments.createMap().apply {
                 putString("phoneNumber", phoneNumber)
-                putString("message", smsMessage)
-                putString("status", "SENT")
-                putDouble("timestamp", System.currentTimeMillis().toDouble())
+                putString("message", message)
+                putString("timestamp", System.currentTimeMillis().toString())
             }
             
             // Emit event
@@ -369,92 +569,96 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             
             promise.resolve(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending SMS: ${e.message}", e)
-            
-            // Create data for event
-            val eventData = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
-                putString("message", message)
-                putString("status", "FAILED")
-                putString("error", e.message ?: "Unknown error")
-                putDouble("timestamp", System.currentTimeMillis().toDouble())
-            }
-            
-            // Emit event
-            sendEvent("onSmsError", eventData)
-            
-            promise.reject("SEND_SMS_ERROR", "Failed to send SMS: ${e.message}")
+            Log.e(TAG, "Error sending SMS directly: ${e.message}", e)
+            promise.reject("SEND_SMS_ERROR", "Failed to send SMS directly: ${e.message}")
         }
     }
 
-    private fun sendSmsForMissedCall(phoneNumber: String) {
-        // Only proceed if this is a genuine missed call (not during initialization)
-        // Check if the missed call detection happened during normal operation
-        if (lastPhoneState != TelephonyManager.CALL_STATE_RINGING || callStart == 0L) {
-            Log.d(TAG, "Skipping auto-SMS for $phoneNumber - not a confirmed missed call")
-            return
-        }
-        
-        // We'll use the default message for missed calls
+    /**
+     * Check if the app is the default SMS handler
+     */
+    @ReactMethod
+    fun isDefaultSmsHandler(promise: Promise) {
         try {
-            val smsMessage = DEFAULT_MESSAGE
-            val smsManager = SmsManager.getDefault()
+            val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(reactApplicationContext)
+            val ourPackage = reactApplicationContext.packageName
+            val isDefault = defaultSmsPackage == ourPackage
             
-            // Split message if it's too long
-            val parts = smsManager.divideMessage(smsMessage)
+            Log.d(TAG, "Default SMS package: $defaultSmsPackage, our package: $ourPackage")
+            Log.d(TAG, "Is default SMS handler: $isDefault")
             
-            // Add FLAG_IMMUTABLE for Android 12+ compatibility
-            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-            
-            // Prepare PendingIntent for SMS
-            val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
-            val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
-            
-            Log.d(TAG, "Sending SMS to $phoneNumber for a missed call")
-            
-            // Send SMS
-            if (parts.size > 1) {
-                // Create PendingIntent array for multipart SMS
-                val sentIntents = ArrayList<PendingIntent>().apply {
-                    repeat(parts.size) { i ->
-                        add(PendingIntent.getBroadcast(reactApplicationContext, i, sentIntent, pendingIntentFlags))
-                    }
-                }
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
-            } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
-            }
-            
-            // Create data for event
-            val eventData = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
-                putString("message", smsMessage)
-                putString("status", "SENT")
-                putDouble("timestamp", System.currentTimeMillis().toDouble())
-            }
-            
-            // Emit event
-            sendEvent("onSmsSent", eventData)
-            
-            Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
+            promise.resolve(isDefault)
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending SMS for missed call: ${e.message}")
+            Log.e(TAG, "Error checking default SMS handler: ${e.message}")
+            promise.reject("DEFAULT_SMS_ERROR", "Failed to check default SMS handler: ${e.message}")
+        }
+    }
+
+    /**
+     * Request to become the default SMS handler
+     */
+    @ReactMethod
+    fun requestDefaultSmsHandler(promise: Promise) {
+        try {
+            // First check if we're already the default SMS app
+            val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(reactApplicationContext)
+            val ourPackage = reactApplicationContext.packageName
+            val isDefault = defaultSmsPackage == ourPackage
             
-            // Create data for event
-            val eventData = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
-                putString("message", DEFAULT_MESSAGE)
-                putString("status", "FAILED")
-                putString("error", e.message ?: "Unknown error")
-                putDouble("timestamp", System.currentTimeMillis().toDouble())
+            if (isDefault) {
+                Log.d(TAG, "App is already the default SMS handler")
+                promise.resolve(true)
+                return
             }
             
-            // Emit event
-            sendEvent("onSmsError", eventData)
+            // Create intent to request becoming default SMS app
+            val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+            intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, ourPackage)
+            
+            // Add all necessary flags to make sure the dialog appears
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            intent.addFlags(Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT)
+            
+            // Define the request code constant - must match MainActivity
+            val DEFAULT_SMS_REQUEST_CODE = 1001
+            
+            Log.d(TAG, "Preparing to show default SMS handler selection dialog")
+            
+            // Get current activity to start intent from there
+            val currentActivity = currentActivity
+            if (currentActivity != null) {
+                try {
+                    Log.d(TAG, "Starting intent from current activity: ${currentActivity.javaClass.simpleName}")
+                    // Start activity for result from current activity
+                    currentActivity.startActivityForResult(intent, DEFAULT_SMS_REQUEST_CODE)
+                    Log.d(TAG, "Successfully started intent from current activity")
+                    promise.resolve(true)
+                    return
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error starting intent from current activity: ${e.message}")
+                    // Fall through to try other methods
+                }
+            } else {
+                Log.d(TAG, "No current activity available")
+            }
+            
+            // Fallback: Start from application context
+            try {
+                Log.d(TAG, "Starting intent from application context")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactApplicationContext.startActivity(intent)
+                Log.d(TAG, "Successfully started intent from application context")
+                promise.resolve(true)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting intent from application context: ${e.message}")
+                promise.reject("DEFAULT_SMS_ERROR", "Failed to launch default SMS handler dialog: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error requesting default SMS handler: ${e.message}")
+            promise.reject("DEFAULT_SMS_ERROR", "Failed to request default SMS handler: ${e.message}")
         }
     }
 

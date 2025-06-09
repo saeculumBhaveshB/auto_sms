@@ -14,15 +14,22 @@ import PermissionsService, {
   REQUIRED_PERMISSIONS,
   PermissionType,
   PermissionStatus,
+  PermissionsStatus,
+  isAndroid15OrHigher,
 } from "../services/PermissionsService";
+import SmsBehaviorNotice from "../components/SmsBehaviorNotice";
 
 const PermissionsStatusScreen: React.FC = () => {
   const [permissionStatuses, setPermissionStatuses] = useState<
     Record<PermissionType, PermissionStatus>
   >({} as Record<PermissionType, PermissionStatus>);
-
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [isDefaultSmsHandler, setIsDefaultSmsHandler] =
+    useState<boolean>(false);
+
+  // Check if we're on Android 15+
+  const isAndroid15Plus = isAndroid15OrHigher();
 
   /**
    * Check all permissions
@@ -45,6 +52,12 @@ const PermissionsStatusScreen: React.FC = () => {
       }
 
       setPermissionStatuses(statuses);
+
+      // Also check if we're the default SMS handler (for Android 15+)
+      if (Platform.OS === "android") {
+        const isSmsHandler = await PermissionsService.isDefaultSmsHandler();
+        setIsDefaultSmsHandler(isSmsHandler);
+      }
     } catch (error) {
       console.error("Error checking permissions:", error);
     } finally {
@@ -64,6 +77,29 @@ const PermissionsStatusScreen: React.FC = () => {
           ...prev,
           [permissionType]: "unavailable", // Temporary status while requesting
         }));
+
+        // Special handling for SMS permissions on Android 15+
+        if (
+          isAndroid15Plus &&
+          (permissionType === "sendSms" ||
+            permissionType === "readSms" ||
+            permissionType === "autoReply")
+        ) {
+          // On Android 15+, we need to be the default SMS handler for these permissions
+          const becameDefault =
+            await PermissionsService.requestDefaultSmsHandler();
+          if (!becameDefault) {
+            Alert.alert(
+              "Default SMS App Required",
+              "On Android 15+, this app must be set as the default SMS app to access SMS features. Please try again and select 'Set as Default'.",
+              [{ text: "OK" }]
+            );
+          }
+
+          // Refresh default SMS handler status
+          const isDefault = await PermissionsService.isDefaultSmsHandler();
+          setIsDefaultSmsHandler(isDefault);
+        }
 
         const status = await PermissionsService.requestPermission(
           permissionType
@@ -98,8 +134,50 @@ const PermissionsStatusScreen: React.FC = () => {
         checkAllPermissions(false);
       }
     },
-    []
+    [isAndroid15Plus, checkAllPermissions]
   );
+
+  /**
+   * Request to become default SMS handler
+   */
+  const requestDefaultSmsHandler = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const result = await PermissionsService.requestDefaultSmsHandler();
+
+      // Refresh permissions after request
+      await checkAllPermissions(false);
+
+      if (result) {
+        Alert.alert(
+          "Success",
+          "App is now the default SMS handler. This allows SMS functionality to work properly on all Android versions.",
+          [{ text: "OK" }]
+        );
+      } else {
+        Alert.alert(
+          "Action Required",
+          "Please set this app as your default SMS app when prompted. This is required for SMS functionality to work properly.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Try Again",
+              onPress: () => requestDefaultSmsHandler(),
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error("Error requesting default SMS handler:", error);
+      Alert.alert(
+        "Error",
+        "Failed to request default SMS handler status. Please try again.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }, [checkAllPermissions]);
 
   /**
    * Request all permissions at once
@@ -116,14 +194,13 @@ const PermissionsStatusScreen: React.FC = () => {
   useEffect(() => {
     checkAllPermissions(true);
 
-    // Run a single permission check when screen is focused
-    // instead of constantly checking with an interval
-    const focusListener = () => {
+    // Set up an interval to refresh status periodically
+    const intervalId = setInterval(() => {
       checkAllPermissions(false);
-    };
+    }, 5000); // Check every 5 seconds
 
     // Clean up function
-    return () => {};
+    return () => clearInterval(intervalId);
   }, [checkAllPermissions]);
 
   /**
@@ -181,29 +258,41 @@ const PermissionsStatusScreen: React.FC = () => {
     (permission: (typeof REQUIRED_PERMISSIONS)[number]) => {
       const status = permissionStatuses[permission.key] || "unavailable";
       const isRequesting = status === "unavailable" && refreshing;
-      // Check if this is the auto reply permission
-      const isAutoReply = permission.key === "autoReply";
+
+      // Special handling for SMS-related permissions on Android 15+
+      const isSmsPermission = ["sendSms", "readSms", "autoReply"].includes(
+        permission.key
+      );
+      const isDisabled =
+        isAndroid15Plus && isSmsPermission && !isDefaultSmsHandler;
 
       return (
         <View
           key={permission.key}
           style={[
             styles.permissionItem,
-            isAutoReply && styles.autoReplyPermissionItem,
+            isSmsPermission && styles.smsPermissionItem,
           ]}
         >
           <View style={styles.permissionDetails}>
             <Text
               style={[
                 styles.permissionName,
-                isAutoReply && styles.autoReplyText,
+                isSmsPermission && styles.smsPermissionText,
               ]}
             >
               {permission.name}
-              {isAutoReply && " ✓"}
+              {isAndroid15Plus &&
+                isSmsPermission &&
+                !isDefaultSmsHandler &&
+                " 🔒"}
             </Text>
             <Text style={styles.permissionDescription}>
               {permission.description}
+              {isAndroid15Plus &&
+                isSmsPermission &&
+                !isDefaultSmsHandler &&
+                " (Requires Default SMS Handler)"}
             </Text>
             <View
               style={[
@@ -221,23 +310,45 @@ const PermissionsStatusScreen: React.FC = () => {
             <TouchableOpacity
               style={[
                 styles.grantButton,
-                isRequesting && styles.grantButtonDisabled,
-                isAutoReply && styles.autoReplyButton,
+                (isRequesting || isDisabled) && styles.grantButtonDisabled,
+                isSmsPermission && styles.smsPermissionButton,
               ]}
-              onPress={() => requestPermission(permission.key)}
+              onPress={() => {
+                if (
+                  isAndroid15Plus &&
+                  isSmsPermission &&
+                  !isDefaultSmsHandler
+                ) {
+                  // For SMS permissions on Android 15+, request default SMS handler first
+                  requestDefaultSmsHandler();
+                } else {
+                  requestPermission(permission.key);
+                }
+              }}
               disabled={isRequesting}
             >
               {isRequesting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.grantButtonText}>Grant</Text>
+                <Text style={styles.grantButtonText}>
+                  {isAndroid15Plus && isSmsPermission && !isDefaultSmsHandler
+                    ? "Set Default"
+                    : "Grant"}
+                </Text>
               )}
             </TouchableOpacity>
           )}
         </View>
       );
     },
-    [permissionStatuses, refreshing, requestPermission]
+    [
+      permissionStatuses,
+      refreshing,
+      requestPermission,
+      isAndroid15Plus,
+      isDefaultSmsHandler,
+      requestDefaultSmsHandler,
+    ]
   );
 
   return (
@@ -254,25 +365,42 @@ const PermissionsStatusScreen: React.FC = () => {
       </View>
 
       <ScrollView style={styles.scrollView}>
+        {/* SMS Behavior Notice for Android */}
+        {Platform.OS === "android" && (
+          <SmsBehaviorNotice
+            onRequestDefault={requestDefaultSmsHandler}
+            isDefaultSmsHandler={isDefaultSmsHandler}
+          />
+        )}
+
+        {/* Default SMS Handler Button - specifically for Android 15+ */}
+        {Platform.OS === "android" &&
+          isAndroid15Plus &&
+          !isDefaultSmsHandler && (
+            <View style={styles.defaultSmsButtonContainer}>
+              <Text style={styles.defaultSmsText}>
+                On Android 15+, this app must be set as the default SMS app to
+                access SMS features.
+              </Text>
+              <TouchableOpacity
+                style={styles.defaultSmsButton}
+                onPress={requestDefaultSmsHandler}
+                disabled={refreshing}
+              >
+                {refreshing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.defaultSmsButtonText}>
+                    Set as Default SMS App
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
         <View style={styles.infoContainer}>
           <Text style={styles.infoText}>
             This app requires the following permissions to function properly:
-          </Text>
-        </View>
-
-        {/* New Auto Reply Info Section */}
-        <View style={styles.autoReplyInfoContainer}>
-          <Text style={styles.autoReplyInfoTitle}>
-            🔔 Auto Reply Permission (RECEIVE_SMS)
-          </Text>
-          <Text style={styles.autoReplyInfoText}>
-            The Auto Reply feature requires the RECEIVE_SMS permission to
-            automatically respond to incoming messages. This is crucial for the
-            AI to detect when someone replies to your missed call message and
-            provide intelligent responses.
-          </Text>
-          <Text style={styles.autoReplyInfoHighlight}>
-            AI responses are always enabled to provide the best user experience.
           </Text>
         </View>
 
@@ -527,44 +655,16 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 14,
   },
-  autoReplyPermissionItem: {
+  smsPermissionItem: {
     borderLeftWidth: 3,
     borderLeftColor: "#2196f3",
     backgroundColor: "#f5f9ff",
   },
-  autoReplyText: {
+  smsPermissionText: {
     color: "#0d47a1",
   },
-  autoReplyButton: {
+  smsPermissionButton: {
     backgroundColor: "#1565c0",
-  },
-  autoReplyInfoContainer: {
-    backgroundColor: "#e3f2fd",
-    padding: 16,
-    margin: 16,
-    marginTop: 8,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: "#2196f3",
-  },
-  autoReplyInfoTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#0d47a1",
-    marginBottom: 8,
-  },
-  autoReplyInfoText: {
-    fontSize: 14,
-    color: "#1565c0",
-    lineHeight: 20,
-  },
-  autoReplyInfoHighlight: {
-    fontSize: 14,
-    color: "#1565c0",
-    lineHeight: 20,
-    fontWeight: "bold",
-    marginTop: 8,
   },
   allGrantedSubtext: {
     fontSize: 14,
@@ -576,6 +676,35 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 12,
     textAlign: "center",
+  },
+  defaultSmsButtonContainer: {
+    backgroundColor: "#fff",
+    padding: 16,
+    margin: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+  },
+  defaultSmsText: {
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 8,
+  },
+  defaultSmsButton: {
+    backgroundColor: "#2196f3",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+  },
+  defaultSmsButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
   },
 });
 

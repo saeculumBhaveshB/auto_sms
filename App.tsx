@@ -14,6 +14,7 @@ import {
 } from "react-native";
 
 import { PermissionsStatusScreen, LocalLLMSetupScreen } from "./src/screens";
+import { DefaultSmsHandlerListener } from "./src/components";
 
 import { CallSmsService, PermissionsService } from "./src/services";
 import AutoReplyService from "./src/services/AutoReplyService";
@@ -212,6 +213,8 @@ function App(): React.JSX.Element {
         barStyle={isDarkMode ? "light-content" : "dark-content"}
         backgroundColor={backgroundStyle.backgroundColor}
       />
+
+      <DefaultSmsHandlerListener />
 
       <NavigationContext.Provider value={navigationContextValue}>
         {/* Tab Navigation */}

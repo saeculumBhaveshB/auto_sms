@@ -30,7 +30,6 @@ The app requires the following Android permissions:
 
 - `READ_CALL_LOG`: To access call history and detect missed calls.
 - `READ_PHONE_STATE`: To detect incoming calls.
-- `SEND_SMS`: To send automatic SMS messages.
 - `READ_SMS`: To verify message status.
 - `RECEIVE_SMS`: For receiving SMS status updates.
 - `READ_CONTACTS`: For displaying contact names (optional).
@@ -80,3 +79,43 @@ The default SMS message is:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Running the App
+
+### Easy Method (Recommended)
+
+```bash
+# Run with legacy variant (Android 6-14)
+./run-android.sh
+
+# Run with modern variant (Android 15+)
+./run-android.sh modern
+```
+
+### Direct Gradle Method
+
+```bash
+# For Android 6-14 (API 23-34)
+cd android && ./gradlew installLegacyDebug && cd .. && npx react-native start
+
+# For Android 15+ (API 35+)
+cd android && ./gradlew installModernDebug && cd .. && npx react-native start
+```
+
+### Note About Standard React Native CLI
+
+The standard `npx react-native run-android` command doesn't work directly with our multi-variant setup. Please use the provided scripts instead.
+
+## Android 15+ SMS Handling
+
+Starting with Android 15 (API 35), the `SEND_SMS` permission is no longer grantable to third-party apps. Our app addresses this by:
+
+1. Using direct SMS APIs for Android 6-14
+2. Using intent-based SMS sending (opening the default SMS app) for Android 15+
+3. Providing a clear user interface to explain the behavior difference
+
+## Technical Implementation
+
+- **Modern variant**: Removes `SEND_SMS` permission and uses intent-based SMS sending
+- **Legacy variant**: Includes `SEND_SMS` permission for direct SMS sending
+- Both variants share the same codebase but adapt based on the Android version

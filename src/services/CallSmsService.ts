@@ -296,7 +296,9 @@ class CallSmsService {
     }
 
     try {
-      return await CallSmsModule.sendSms(phoneNumber, message);
+      // Use SmsService which handles Android version-specific logic
+      const SmsService = await import("./SmsService").then((m) => m.default);
+      return await SmsService.sendSms(phoneNumber, message);
     } catch (error) {
       console.error("Error sending SMS:", error);
       return false;
