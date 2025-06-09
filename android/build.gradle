@@ -1,3 +1,5 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
     ext {
         buildToolsVersion = "35.0.0"
@@ -19,3 +21,16 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Clean build task to remove unused intermediates
+tasks.register('cleanBuildCache', Delete) {
+    delete "${rootProject.buildDir}/intermediates"
+    println "Cleaned build cache"
+}
+
+// Run this task before assembling release to clean up
+tasks.whenTaskAdded { task ->
+    if (task.name.contains("assembleRelease")) {
+        task.dependsOn cleanBuildCache
+    }
+}

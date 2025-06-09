@@ -54,7 +54,6 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
             const hasRealModel =
               (await LocalLLMModule.hasRealModel?.()) ?? false;
             setIsInFallbackMode(!hasRealModel);
-            logDebug(`🔍 Real model available: ${hasRealModel ? "Yes" : "No"}`);
           } catch {
             setIsInFallbackMode(true);
           }
@@ -73,37 +72,23 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
               let extractedTextAvailable = false;
 
               if (isPdf) {
-                logDebug(`🔍 Checking PDF: ${doc.name}`);
                 try {
                   // Try to check if text can be extracted
                   const testExtraction = await CallSmsModule.testPdfExtraction(
                     doc.path
                   );
                   extractedTextAvailable = testExtraction.success;
-                  logDebug(
-                    `📄 PDF ${doc.name} text extraction: ${
-                      extractedTextAvailable ? "Available" : "Not available"
-                    }`
-                  );
                 } catch (e) {
-                  logDebug(`❌ Error checking PDF text: ${e}`);
                   extractedTextAvailable = false;
                 }
               } else if (isDocx) {
-                logDebug(`🔍 Checking DOCX: ${doc.name}`);
                 try {
                   // Try to check if text can be extracted from DOCX
                   const testExtraction = await CallSmsModule.testDocxExtraction(
                     doc.path
                   );
                   extractedTextAvailable = testExtraction.success;
-                  logDebug(
-                    `📄 DOCX ${doc.name} text extraction: ${
-                      extractedTextAvailable ? "Available" : "Not available"
-                    }`
-                  );
                 } catch (e) {
-                  logDebug(`❌ Error checking DOCX text: ${e}`);
                   extractedTextAvailable = false;
                 }
               }
@@ -120,48 +105,16 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
                     null,
               };
             } catch (e) {
-              logDebug(`❌ Error processing document ${doc.name}: ${e}`);
               return doc;
             }
           })
         );
 
         setDocuments(enrichedDocs);
-
-        logDebug(`📄 Found ${enrichedDocs.length} documents`);
-        enrichedDocs.forEach((doc: Document) => {
-          let fileType = "Text";
-          let extractStatus = "";
-
-          if (doc.isPdf) {
-            fileType = "PDF";
-            extractStatus = doc.extractedTextAvailable
-              ? " (text extractable)"
-              : " (no extractable text)";
-          } else if (doc.isDocx) {
-            fileType = "DOCX";
-            extractStatus = doc.extractedTextAvailable
-              ? " (text extractable)"
-              : " (no extractable text)";
-          } else if (doc.isBinary) {
-            fileType = "Binary";
-          }
-
-          logDebug(
-            `   - ${doc.name} (${(doc.size / 1024).toFixed(
-              2
-            )} KB) - ${fileType}${extractStatus}`
-          );
-        });
-
-        logDebug(`🧠 Model loaded status: ${modelLoaded}`);
-
-        // Run document verification to debug issues
-        await verifyDocuments();
       } catch (err: unknown) {
         console.error("Error initializing LLM Tester:", err);
         const errorMessage = err instanceof Error ? err.message : String(err);
-        logDebug(`❌ Error initializing: ${errorMessage}`);
+        setError(errorMessage);
       }
     };
 
@@ -169,178 +122,13 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
   }, []);
 
   const logDebug = (message: string) => {
-    setDebugLog(
-      (prev) =>
-        `${prev}\n${new Date().toISOString().slice(11, 19)} - ${message}`
-    );
-    console.log(message);
-  };
-
-  const verifyDocuments = async () => {
-    try {
-      logDebug("🔍 Verifying document storage...");
-
-      try {
-        const result = await CallSmsModule.debugDocumentStorage();
-
-        logDebug(`📁 Documents path: ${result.documentsPath}`);
-        logDebug(`📂 Documents directory exists: ${result.documentsExists}`);
-        logDebug(`📊 Found ${result.fileCount} files`);
-
-        if (result.files && result.files.length > 0) {
-          let binaryCount = 0;
-          let textCount = 0;
-          let pdfCount = 0;
-          let docxCount = 0;
-          let extractableCount = 0;
-
-          result.files.forEach((file: any) => {
-            const isBinary = file.isBinary;
-            const isPdf = file.name.toLowerCase().endsWith(".pdf");
-            const isDocx = file.name.toLowerCase().endsWith(".docx");
-
-            if (isPdf) {
-              pdfCount++;
-              if (file.extractableText === true) extractableCount++;
-            } else if (isDocx) {
-              docxCount++;
-              if (file.extractableText === true) extractableCount++;
-            } else if (isBinary) {
-              binaryCount++;
-            } else {
-              textCount++;
-            }
-
-            let fileType = "Text";
-            let extractInfo = "";
-
-            if (isPdf) {
-              fileType = "PDF";
-              extractInfo = ` (${
-                file.extractableText ? "extractable" : "non-extractable"
-              })`;
-            } else if (isDocx) {
-              fileType = "DOCX";
-              extractInfo = ` (${
-                file.extractableText ? "extractable" : "non-extractable"
-              })`;
-            } else if (isBinary) {
-              fileType = "Binary";
-            }
-
-            logDebug(
-              `   - ${file.name} (${(file.size / 1024).toFixed(
-                2
-              )} KB) - ${fileType}${extractInfo}`
-            );
-          });
-
-          logDebug(
-            `📊 Summary: ${textCount} text files, ${binaryCount} binary files, ${pdfCount} PDF files, ${docxCount} DOCX files (${extractableCount} extractable)`
-          );
-
-          // Refresh document list with enhanced info
-          try {
-            const docs = await LocalLLMModule.listDocuments();
-            const enrichedDocs = docs.map((doc: Document) => {
-              const isPdf = doc.name.toLowerCase().endsWith(".pdf");
-              const isDocx = doc.name.toLowerCase().endsWith(".docx");
-              const matchingFile = result.files.find(
-                (f: any) => f.name === doc.name
-              );
-
-              // For DOCX files, don't rely solely on the extraction test
-              // since that might fail due to POI issues
-              const isDocxTextAvailable = isDocx ? true : false;
-
-              return {
-                ...doc,
-                isPdf,
-                isDocx,
-                extractedTextAvailable:
-                  isPdf && matchingFile
-                    ? matchingFile.extractableText
-                    : isDocxTextAvailable, // Always assume DOCX files can be processed
-                isBinary:
-                  isPdf ||
-                  isDocx ||
-                  doc.name.toLowerCase().match(/\.(doc|jpg|jpeg|png|gif)$/) !==
-                    null,
-              };
-            });
-
-            setDocuments(enrichedDocs);
-          } catch (docsError) {
-            logDebug(`⚠️ Error enriching documents: ${docsError}`);
-            // Continue execution even if this part fails
-          }
-        } else {
-          logDebug("⚠️ No files found in documents directory");
-
-          // Create a test document if none exist
-          logDebug("📄 Creating a sample text document for testing");
-          try {
-            await LocalLLMModule.createSampleDocument();
-            logDebug("✅ Created sample document");
-
-            // Refresh document list
-            const refreshedDocs = await LocalLLMModule.listDocuments();
-            setDocuments(refreshedDocs);
-            logDebug(`📄 Now have ${refreshedDocs.length} documents`);
-          } catch (e) {
-            logDebug(`❌ Failed to create sample document: ${e}`);
-          }
-        }
-
-        return result;
-      } catch (debugError) {
-        logDebug(`⚠️ Error in debugDocumentStorage: ${debugError}`);
-
-        // Fallback: try to get documents directly
-        try {
-          const docs = await LocalLLMModule.listDocuments();
-
-          // Process without extraction testing
-          const simpleEnrichedDocs = docs.map((doc: Document) => {
-            const isPdf = doc.name.toLowerCase().endsWith(".pdf");
-            const isDocx = doc.name.toLowerCase().endsWith(".docx");
-
-            return {
-              ...doc,
-              isPdf,
-              isDocx,
-              extractedTextAvailable: true, // Assume all are extractable for UI
-              isBinary:
-                isPdf ||
-                isDocx ||
-                doc.name.toLowerCase().match(/\.(doc|jpg|jpeg|png|gif)$/) !==
-                  null,
-            };
-          });
-
-          setDocuments(simpleEnrichedDocs);
-          logDebug(
-            `📄 Fallback: loaded ${simpleEnrichedDocs.length} documents without extraction testing`
-          );
-
-          return {
-            documentsPath: "Unknown",
-            documentsExists: true,
-            fileCount: simpleEnrichedDocs.length,
-            files: simpleEnrichedDocs,
-          };
-        } catch (fallbackError) {
-          logDebug(
-            `❌ Fallback document loading also failed: ${fallbackError}`
-          );
-          throw fallbackError;
-        }
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logDebug(`❌ Error verifying documents: ${errorMessage}`);
-      return null;
+    if (showDebugInfo) {
+      setDebugLog(
+        (prev) =>
+          `${prev}\n${new Date().toISOString().slice(11, 19)} - ${message}`
+      );
     }
+    console.log(message);
   };
 
   const testLLM = async () => {
@@ -357,14 +145,6 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       // Start logging
       logDebug(`🔍 Testing LLM with question: "${question}"`);
       logDebug(`📄 Using ${documents.length} documents for context`);
-
-      // Verify documents first to ensure they're available
-      try {
-        await verifyDocuments();
-      } catch (verifyError) {
-        // Log but continue even if verification fails
-        logDebug(`⚠️ Document verification warning: ${verifyError}`);
-      }
 
       const startTime = Date.now();
 
@@ -487,14 +267,6 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
       // Start logging
       logDebug(`🔍 Starting Document QA for: "${question}"`);
       logDebug(`📄 Available documents: ${documents.length}`);
-
-      // Verify documents with safety measures
-      try {
-        await verifyDocuments();
-      } catch (verifyError) {
-        // Log but continue with available documents
-        logDebug(`⚠️ Document verification warning: ${verifyError}`);
-      }
 
       if (documents.length === 0) {
         setError("No documents available. Please add documents first.");
@@ -744,26 +516,14 @@ const LLMTester: React.FC<LLMTesterProps> = () => {
         <TouchableOpacity
           style={[
             styles.button,
-            styles.secondaryButton,
-            { flex: 0.7, marginLeft: 4, marginRight: 4 },
-          ]}
-          onPress={verifyDocuments}
-          disabled={loading}
-        >
-          <Text style={styles.secondaryButtonText}>Verify Documents</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.button,
             isModelLoaded ? styles.unloadButton : styles.loadButton,
             { flex: 0.7, marginLeft: 4 },
           ]}
           onPress={forceLoadModel}
           disabled={loading}
         >
-          <Text style={styles.secondaryButtonText}>
-            {isModelLoaded ? "Reload Model" : "Load Model"}
+          <Text style={styles.buttonText}>
+            {isModelLoaded ? "Unload Model" : "Load Model"}
           </Text>
         </TouchableOpacity>
       </View>
