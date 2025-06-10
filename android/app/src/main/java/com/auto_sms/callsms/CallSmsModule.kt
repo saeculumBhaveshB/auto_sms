@@ -30,6 +30,8 @@ import java.util.Timer
 import java.util.TimerTask
 import kotlinx.coroutines.runBlocking
 import com.auto_sms.docextractor.DocExtractorHelper
+import android.os.Handler
+import android.os.Looper
 
 class CallSmsModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
@@ -584,18 +586,28 @@ class CallSmsModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
             val ourPackage = reactApplicationContext.packageName
             val isDefault = defaultSmsPackage == ourPackage
             
-            Log.d(TAG, "Default SMS package: $defaultSmsPackage, our package: $ourPackage")
-            Log.d(TAG, "Is default SMS handler: $isDefault")
+            Log.d(TAG, "📱 isDefaultSmsHandler check - Current default: $defaultSmsPackage, Our package: $ourPackage, Is default: $isDefault")
+            
+            // Create a map to return more detailed information for debugging
+            val resultMap = Arguments.createMap().apply {
+                putBoolean("isDefault", isDefault)
+                putString("defaultPackage", defaultSmsPackage ?: "null")
+                putString("ourPackage", ourPackage)
+                putBoolean("hasRequiredPermissions", hasRequiredPermissions())
+            }
             
             promise.resolve(isDefault)
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking default SMS handler: ${e.message}")
-            promise.reject("DEFAULT_SMS_ERROR", "Failed to check default SMS handler: ${e.message}")
+            Log.e(TAG, "Error checking if app is default SMS handler: ${e.message}")
+            promise.reject("ERROR", "Failed to check if app is default SMS handler: ${e.message}")
         }
     }
 
     /**
      * Request to become the default SMS handler
+     * This method now has two approaches:
+     * 1. Use the standard Android intent (for Android <= 14)
+     * 2. Direct to Android settings (more reliable for Android 15+)
      */
     @ReactMethod
     fun requestDefaultSmsHandler(promise: Promise) {
@@ -606,59 +618,137 @@ class CallSmsModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
             val isDefault = defaultSmsPackage == ourPackage
             
             if (isDefault) {
-                Log.d(TAG, "App is already the default SMS handler")
+                Log.d(TAG, "📱 App is already the default SMS handler")
                 promise.resolve(true)
+                
+                // Create event data for the success event
+                val eventData = Arguments.createMap().apply {
+                    putBoolean("isDefault", true)
+                }
+                sendEvent("defaultSmsHandlerChanged", eventData)
                 return
             }
             
-            // Create intent to request becoming default SMS app
-            val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
-            intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, ourPackage)
+            Log.d(TAG, "📱 Preparing to request default SMS handler")
             
-            // Add all necessary flags to make sure the dialog appears
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            intent.addFlags(Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT)
+            // Determine if we should use direct settings method (more reliable for Android 15+)
+            val useDirectSettings = Build.VERSION.SDK_INT >= 35
             
-            // Define the request code constant - must match MainActivity
-            val DEFAULT_SMS_REQUEST_CODE = 1001
-            
-            Log.d(TAG, "Preparing to show default SMS handler selection dialog")
-            
-            // Get current activity to start intent from there
-            val currentActivity = currentActivity
-            if (currentActivity != null) {
+            if (useDirectSettings) {
+                // Direct to Android Settings for Default SMS app (more reliable)
                 try {
-                    Log.d(TAG, "Starting intent from current activity: ${currentActivity.javaClass.simpleName}")
-                    // Start activity for result from current activity
-                    currentActivity.startActivityForResult(intent, DEFAULT_SMS_REQUEST_CODE)
-                    Log.d(TAG, "Successfully started intent from current activity")
+                    Log.d(TAG, "📱 Using direct settings approach for Android 15+")
+                    
+                    // Create intent to open Default Apps settings
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    
+                    // Start the settings activity
+                    reactApplicationContext.startActivity(intent)
+                    
+                    // Send an event to the JS side to show guidance
+                    val eventData = Arguments.createMap().apply {
+                        putString("status", "settingsOpened")
+                        putString("message", "Please select 'SMS app' and then select this app from the list")
+                    }
+                    sendEvent("defaultSmsHandlerSettings", eventData)
+                    
+                    Log.d(TAG, "📱 Opened Android settings for Default Apps")
                     promise.resolve(true)
                     return
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error starting intent from current activity: ${e.message}")
-                    // Fall through to try other methods
+                    Log.e(TAG, "📱 Error opening Default Apps settings: ${e.message}")
+                    // Fall back to standard approach if direct settings fails
                 }
-            } else {
-                Log.d(TAG, "No current activity available")
             }
             
-            // Fallback: Start from application context
+            // Standard approach using Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT
             try {
-                Log.d(TAG, "Starting intent from application context")
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                reactApplicationContext.startActivity(intent)
-                Log.d(TAG, "Successfully started intent from application context")
-                promise.resolve(true)
+                // Get current activity to start intent from there
+                val currentActivity = currentActivity
+                if (currentActivity != null) {
+                    // Create intent to request becoming default SMS app
+                    val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+                    intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, ourPackage)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    
+                    // Define request code
+                    val DEFAULT_SMS_REQUEST_CODE = 1001
+                    
+                    // Start the intent
+                    if (currentActivity is com.auto_sms.MainActivity) {
+                        currentActivity.startDefaultSmsRequest(intent, DEFAULT_SMS_REQUEST_CODE)
+                        Log.d(TAG, "📱 Default SMS handler request started from MainActivity")
+                    } else {
+                        currentActivity.startActivityForResult(intent, DEFAULT_SMS_REQUEST_CODE)
+                        Log.d(TAG, "📱 Default SMS handler request started from activity: ${currentActivity.javaClass.simpleName}")
+                    }
+                    
+                    // Set up a callback to check status periodically
+                    val handler = Handler(Looper.getMainLooper())
+                    val maxChecks = 15
+                    var checkCount = 0
+                    
+                    val statusChecker = object : Runnable {
+                        override fun run() {
+                            val currentDefault = Telephony.Sms.getDefaultSmsPackage(reactApplicationContext)
+                            val isNowDefault = currentDefault == ourPackage
+                            Log.d(TAG, "📱 Status check: Current default SMS app: $currentDefault, our package: $ourPackage, is default: $isNowDefault")
+                            
+                            if (isNowDefault) {
+                                // Create event data
+                                val eventData = Arguments.createMap().apply {
+                                    putBoolean("isDefault", true)
+                                }
+                                sendEvent("defaultSmsHandlerChanged", eventData)
+                                return
+                            }
+                            
+                            checkCount++
+                            if (checkCount < maxChecks) {
+                                handler.postDelayed(this, 2000) // Check every 2 seconds
+                            } else {
+                                Log.d(TAG, "📱 Reached maximum number of checks. Giving up.")
+                                
+                                // Create error event data with details
+                                val errorData = Arguments.createMap().apply {
+                                    putString("error", "Timed out waiting for system to update default SMS app")
+                                    putString("defaultPackage", currentDefault ?: "null")
+                                    putString("ourPackage", ourPackage)
+                                    putBoolean("hasRequiredPermissions", hasRequiredPermissions())
+                                }
+                                sendEvent("defaultSmsHandlerRequestFailed", errorData)
+                            }
+                        }
+                    }
+                    
+                    handler.postDelayed(statusChecker, 2000) // Start checking after 2 seconds
+                    promise.resolve(true)
+                } else {
+                    // No activity available, try to start the intent from the application context
+                    Log.d(TAG, "📱 No activity available, opening Settings directly")
+                    
+                    // Open Android settings for Default Apps
+                    val settingsIntent = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                    settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    reactApplicationContext.startActivity(settingsIntent)
+                    
+                    // Send guidance event
+                    val eventData = Arguments.createMap().apply {
+                        putString("status", "settingsOpened")
+                        putString("message", "Please select 'SMS app' and then select this app from the list")
+                    }
+                    sendEvent("defaultSmsHandlerSettings", eventData)
+                    
+                    promise.resolve(true)
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting intent from application context: ${e.message}")
-                promise.reject("DEFAULT_SMS_ERROR", "Failed to launch default SMS handler dialog: ${e.message}")
+                Log.e(TAG, "📱 Error in standard SMS handler request: ${e.message}")
+                promise.reject("ERROR", "Failed to request default SMS handler: ${e.message}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error requesting default SMS handler: ${e.message}")
-            promise.reject("DEFAULT_SMS_ERROR", "Failed to request default SMS handler: ${e.message}")
+            Log.e(TAG, "📱 Error in requestDefaultSmsHandler: ${e.message}")
+            promise.reject("ERROR", "Failed to request default SMS handler: ${e.message}")
         }
     }
 

@@ -8,6 +8,9 @@ import {
   openSettings,
   Permission,
 } from "react-native-permissions";
+import { NativeEventEmitter } from "react-native";
+import { DeviceEventEmitter } from "react-native";
+import { Alert } from "react-native";
 
 // Keys for storing permission status
 const PERMISSION_STORAGE_KEY_PREFIX = "@AutoSMS:Permission:";
@@ -405,32 +408,178 @@ class PermissionsService {
 
       console.log("Requesting to become default SMS handler");
 
-      // Request to become default SMS handler
-      const result =
-        await NativeModules.CallSmsModule.requestDefaultSmsHandler();
-      console.log("Default SMS handler request initiated:", result);
+      // Create a promise that will be resolved when the defaultSmsHandlerChanged event fires
+      const resultPromise = new Promise<boolean>((resolve, reject) => {
+        // Set up listener for the defaultSmsHandlerChanged event
+        const eventListener = DeviceEventEmitter.addListener(
+          "defaultSmsHandlerChanged",
+          (event) => {
+            console.log("Default SMS handler changed event received:", event);
+            if (event && typeof event.isDefault === "boolean") {
+              // Clear the timeout since we got a response
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+              }
 
-      // Give the system time to process the change before checking
-      // This delay needs to be long enough for the user to see and interact with the system dialog
-      return new Promise((resolve) => {
-        // Check status after a delay to allow user interaction
-        setTimeout(async () => {
-          try {
-            // Check if we've become the default SMS handler
-            const checkResult = await this.isDefaultSmsHandler();
-            console.log("Result of default SMS handler check:", checkResult);
-            resolve(checkResult);
-          } catch (error) {
-            console.error(
-              "Error checking if app became default SMS handler:",
-              error
-            );
-            resolve(false);
+              // Clean up the listener
+              eventListener.remove();
+              failureListener.remove();
+              successListener.remove();
+              settingsListener.remove();
+
+              // Resolve with the result
+              resolve(event.isDefault);
+            }
           }
-        }, 5000); // Give more time for user to interact with the system dialog
+        );
+
+        // Also listen for the success event which is sent when we successfully become the default
+        const successListener = DeviceEventEmitter.addListener(
+          "defaultSmsHandlerSet",
+          () => {
+            console.log("Default SMS handler successfully set");
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+
+            successListener.remove();
+            eventListener.remove();
+            failureListener.remove();
+            settingsListener.remove();
+
+            // Double-check that we're really the default
+            setTimeout(async () => {
+              const isReallyDefault = await this.isDefaultSmsHandler();
+              resolve(isReallyDefault);
+            }, 1000);
+          }
+        );
+
+        // Set up listener for the failure event
+        const failureListener = DeviceEventEmitter.addListener(
+          "defaultSmsHandlerRequestFailed",
+          (error) => {
+            console.log("Default SMS handler request failed:", error);
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+
+            // Clean up listeners
+            eventListener.remove();
+            successListener.remove();
+            failureListener.remove();
+            settingsListener.remove();
+
+            // Provide better error message for troubleshooting
+            const errorMsg =
+              typeof error === "string"
+                ? error
+                : error?.error || "Failed to set as default SMS handler";
+
+            console.error(
+              `SMS default handler error details: ${JSON.stringify(error)}`
+            );
+            reject(new Error(errorMsg));
+          }
+        );
+
+        // New listener for the settings event - when direct settings are opened
+        const settingsListener = DeviceEventEmitter.addListener(
+          "defaultSmsHandlerSettings",
+          (event) => {
+            console.log("Default SMS handler settings opened:", event);
+
+            // This is fired when direct settings are opened
+            // Show a modal to guide the user through the manual settings
+            if (event?.status === "settingsOpened") {
+              Alert.alert(
+                "Set Default SMS App",
+                "Please follow these steps in the Settings app:\n\n" +
+                  "1. Tap on 'Default apps' or 'SMS app'\n" +
+                  "2. Select this app from the list\n" +
+                  "3. Return to this app when done\n\n" +
+                  "This app will check if you've successfully set it as default when you return.",
+                [{ text: "OK" }]
+              );
+
+              // Start a polling mechanism to check if we've become the default SMS app
+              // This will run when the app regains focus
+              const checkInterval = setInterval(async () => {
+                const checkResult = await this.isDefaultSmsHandler();
+                console.log("Polling default SMS status:", checkResult);
+
+                if (checkResult) {
+                  // We've become the default SMS handler!
+                  clearInterval(checkInterval);
+
+                  // Clear the timeout
+                  if (timeoutId) {
+                    clearTimeout(timeoutId);
+                  }
+
+                  // Clean up listeners
+                  eventListener.remove();
+                  successListener.remove();
+                  failureListener.remove();
+                  settingsListener.remove();
+
+                  // Resolve the promise
+                  resolve(true);
+                }
+              }, 2000); // Check every 2 seconds
+
+              // Set a timeout to clear the interval if it runs too long
+              setTimeout(() => {
+                clearInterval(checkInterval);
+                // Don't resolve or reject here - the main timeout will handle that
+              }, 58000); // Stop polling 2 seconds before the main timeout
+            }
+          }
+        );
+
+        // Set a timeout in case we never get a response
+        // Increased from 30 seconds to 60 seconds
+        const timeoutId = setTimeout(() => {
+          console.log("Timeout waiting for default SMS handler change event");
+
+          // Clean up listeners
+          eventListener.remove();
+          successListener.remove();
+          failureListener.remove();
+          settingsListener.remove();
+
+          // Try one last check before rejecting
+          this.isDefaultSmsHandler().then((isDefault) => {
+            if (isDefault) {
+              console.log(
+                "Final check shows we are the default SMS handler despite timeout"
+              );
+              resolve(true);
+            } else {
+              // Reject with timeout error
+              reject(
+                new Error(
+                  "Timeout waiting for default SMS handler change. Please try again and make sure to select this app when prompted."
+                )
+              );
+            }
+          });
+        }, 60000); // 60 second timeout
       });
+
+      // Request to become default SMS handler
+      await NativeModules.CallSmsModule.requestDefaultSmsHandler();
+      console.log("Default SMS handler request initiated");
+
+      // Wait for the result or timeout
+      return await resultPromise;
     } catch (error) {
-      console.error("Error requesting to become default SMS handler:", error);
+      console.error("Error requesting default SMS handler:", error);
+      // Check one more time in case the error was in the event system but the permission was granted
+      const finalCheck = await this.isDefaultSmsHandler();
+      if (finalCheck) {
+        return true;
+      }
       return false;
     }
   }

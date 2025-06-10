@@ -79,7 +79,7 @@ android {
 
     namespace "com.auto_sms"
     defaultConfig {
-        applicationId "com.auto_sms"
+        applicationId "com.auto_sms.updated"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

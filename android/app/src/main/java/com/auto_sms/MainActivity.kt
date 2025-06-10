@@ -35,68 +35,194 @@ class MainActivity : ReactActivity() {
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
       
   /**
+   * Activity lifecycle hook - onCreate
+   */
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    Log.d(TAG, "MainActivity onCreate")
+    
+    // Check current default SMS handler on startup
+    try {
+      val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
+      val ourPackage = packageName
+      val isDefault = defaultSmsPackage == ourPackage
+      
+      Log.d(TAG, "✅ Initial default SMS check - Default package: $defaultSmsPackage")
+      Log.d(TAG, "✅ Our package: $ourPackage")
+      Log.d(TAG, "✅ Is default SMS handler: $isDefault")
+    } catch (e: Exception) {
+      Log.e(TAG, "❌ Error checking default SMS handler on startup: ${e.message}")
+    }
+    
+    // Register ourselves with the CallSmsModule
+    val reactContext = this.reactNativeHost.reactInstanceManager.currentReactContext
+    if (reactContext != null) {
+      val eventData = Arguments.createMap().apply {
+        putString("event", "activityCreated")
+      }
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("activityEvent", eventData)
+    }
+  }
+  
+  /**
+   * Activity lifecycle hook - onResume
+   */
+  override fun onResume() {
+    super.onResume()
+    Log.d(TAG, "📱 MainActivity onResume")
+    
+    // Check if we're the default SMS handler on resume
+    val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
+    val ourPackage = packageName
+    val isDefault = defaultSmsPackage == ourPackage
+    
+    Log.d(TAG, "📱 onResume check - Default SMS app: $defaultSmsPackage, our package: $ourPackage, is default: $isDefault")
+    
+    // Send the status to JS
+    val reactContext = this.reactNativeHost.reactInstanceManager.currentReactContext
+    if (reactContext != null) {
+      val eventData = Arguments.createMap().apply {
+        putBoolean("isDefault", isDefault)
+      }
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("defaultSmsHandlerChanged", eventData)
+    }
+  }
+  
+  /**
+   * Helper method to start the default SMS request
+   * This is called from the CallSmsModule
+   */
+  fun startDefaultSmsRequest(intent: Intent, requestCode: Int) {
+    Log.d(TAG, "📱 Starting default SMS request from MainActivity")
+    try {
+      // Start activity for result
+      startActivityForResult(intent, requestCode)
+      Log.d(TAG, "📱 Default SMS request intent started successfully")
+    } catch (e: Exception) {
+      Log.e(TAG, "📱 Error starting default SMS request: ${e.message}")
+      // Notify JS of the error
+      val reactContext = this.reactNativeHost.reactInstanceManager.currentReactContext
+      if (reactContext != null) {
+        val eventData = Arguments.createMap().apply {
+          putString("error", e.message)
+        }
+        reactContext
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("defaultSmsHandlerRequestFailed", eventData)
+      }
+    }
+  }
+  
+  /**
    * Handle activity result for default SMS handler request
    */
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
     super.onActivityResult(requestCode, resultCode, data)
     
-    Log.d(TAG, "Activity result received: requestCode=$requestCode, resultCode=$resultCode")
+    Log.d(TAG, "📱 Activity result received: requestCode=$requestCode, resultCode=$resultCode")
     
     if (requestCode == DEFAULT_SMS_REQUEST_CODE) {
-      Log.d(TAG, "Received result from default SMS handler request: $resultCode")
+      Log.d(TAG, "📱 Received result from default SMS handler request: $resultCode")
       
-      // Check if we've become the default SMS handler
-      val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
-      val isDefault = defaultSmsPackage == packageName
-      
-      Log.d(TAG, "Default SMS package is now: $defaultSmsPackage")
-      Log.d(TAG, "Our package is: $packageName")
-      Log.d(TAG, "Is default SMS handler: $isDefault")
-      
-      // Always send event to JS, regardless of the result
-      sendDefaultSmsHandlerEvent(isDefault)
+      // Check if we've become the default SMS handler - don't rely on resultCode
+      // The actual state must be verified by checking the system setting
+      Handler(Looper.getMainLooper()).postDelayed({
+        val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
+        val ourPackage = packageName
+        val isDefault = defaultSmsPackage == ourPackage
+        
+        Log.d(TAG, "📱 Delayed check - Current default SMS app: $defaultSmsPackage, our package: $ourPackage, is default: $isDefault")
+        
+        // Send the result to JS
+        val reactContext = this.reactNativeHost.reactInstanceManager.currentReactContext
+        if (reactContext != null) {
+          val eventData = Arguments.createMap().apply {
+            putBoolean("isDefault", isDefault)
+          }
+          reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("defaultSmsHandlerChanged", eventData)
+          
+          // If we've become the default handler, also emit the success event
+          if (isDefault) {
+            reactContext
+              .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+              .emit("defaultSmsHandlerSet", null)
+          }
+        }
+        
+        // Check again after some time in case system is still updating
+        if (!isDefault) {
+          Handler(Looper.getMainLooper()).postDelayed({
+            val latestDefault = Telephony.Sms.getDefaultSmsPackage(this)
+            val isNowDefault = latestDefault == ourPackage
+            
+            Log.d(TAG, "📱 Final check - Current default SMS app: $latestDefault, our package: $ourPackage, is default: $isNowDefault")
+            
+            if (isNowDefault && reactContext != null) {
+              val eventData = Arguments.createMap().apply {
+                putBoolean("isDefault", true)
+              }
+              reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("defaultSmsHandlerChanged", eventData)
+              
+              reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("defaultSmsHandlerSet", null)
+            }
+          }, 5000) // Check again after 5 seconds
+        }
+      }, 1000) // Initial check after 1 second
     }
   }
   
   /**
-   * Helper method to send default SMS handler event to React Native
+   * Handle new intents (including SMS-related intents)
    */
-  private fun sendDefaultSmsHandlerEvent(isDefault: Boolean) {
-    try {
-      // Try to get current React context
-      val reactContext = this.reactNativeHost.reactInstanceManager.currentReactContext
-      if (reactContext != null) {
-        Log.d(TAG, "Sending defaultSmsHandlerChanged event to JS with isDefault=$isDefault")
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    Log.d(TAG, "📱 onNewIntent called with action: ${intent.action}")
+    
+    // Handle SMS-related intents
+    if (intent.action == Intent.ACTION_SENDTO && 
+        (intent.data?.scheme == "sms" || intent.data?.scheme == "smsto" ||
+         intent.data?.scheme == "mms" || intent.data?.scheme == "mmsto")) {
+      
+      Log.d(TAG, "📱 Received SMS-related intent: ${intent.data}")
+      
+      // Get the phone number from the intent data
+      val phoneNumber = intent.data?.schemeSpecificPart
+      Log.d(TAG, "📱 Phone number from intent: $phoneNumber")
+      
+      // Get the message body if present
+      val messageBody = intent.getStringExtra("sms_body") ?: ""
+      Log.d(TAG, "📱 Message body from intent: $messageBody")
+      
+      // You can handle this by passing it to React Native or handling it natively
+      // For now, we'll just log it
+      
+      // Check if we're the default SMS handler
+      try {
+        val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this)
+        val ourPackage = packageName
+        val isDefault = defaultSmsPackage == ourPackage
         
-        val eventData = Arguments.createMap().apply {
-          putBoolean("isDefault", isDefault)
+        Log.d(TAG, "📱 Default SMS check during intent handling - Default package: $defaultSmsPackage")
+        Log.d(TAG, "📱 Our package: $ourPackage")
+        Log.d(TAG, "📱 Is default SMS handler: $isDefault")
+        
+        // If we aren't the default handler but received this intent, inform user
+        if (!isDefault) {
+          Log.d(TAG, "⚠️ Received SMS intent but we're not the default handler")
         }
-        
-        reactContext
-          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-          .emit("defaultSmsHandlerChanged", eventData)
-      } else {
-        Log.e(TAG, "Cannot send event to JS: React context is null")
-        
-        // If React context is null, retry after a delay
-        Handler(Looper.getMainLooper()).postDelayed({
-          Log.d(TAG, "Retrying to send defaultSmsHandlerChanged event")
-          val retryContext = this.reactNativeHost.reactInstanceManager.currentReactContext
-          if (retryContext != null) {
-            val eventData = Arguments.createMap().apply {
-              putBoolean("isDefault", isDefault)
-            }
-            retryContext
-              .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-              .emit("defaultSmsHandlerChanged", eventData)
-            Log.d(TAG, "Successfully sent delayed defaultSmsHandlerChanged event")
-          } else {
-            Log.e(TAG, "Still cannot send event: React context is null after delay")
-          }
-        }, 1000) // 1 second delay
+      } catch (e: Exception) {
+        Log.e(TAG, "❌ Error checking default SMS handler during intent handling: ${e.message}")
       }
-    } catch (e: Exception) {
-      Log.e(TAG, "Error sending defaultSmsHandlerChanged event: ${e.message}")
     }
   }
 }
