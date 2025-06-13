@@ -405,6 +405,7 @@ class RcsAutoReplyManager(private val context: Context) {
         val rateLimit = getRateLimit()
         
         try {
+            Log.e(TAG, "🔍 Checking if we've replied recently to $sender")
             val json = JSONObject(repliedConversations)
             
             // Create a unique key for this sender and message
@@ -415,35 +416,64 @@ class RcsAutoReplyManager(private val context: Context) {
                 val senderData = json.getJSONObject(senderKey)
                 val lastReplyTime = senderData.getLong("timestamp")
                 val currentTime = System.currentTimeMillis()
+                val timeSinceLastReply = currentTime - lastReplyTime
+                
+                Log.e(TAG, "⏱️ Time since last reply: ${timeSinceLastReply}ms, Rate limit: ${rateLimit}ms")
                 
                 // Check if we're within the rate limit period
-                if ((currentTime - lastReplyTime) < rateLimit) {
+                if (timeSinceLastReply < rateLimit) {
                     // If this is the exact same message we've already replied to, don't reply again
-                    if (senderData.has("lastMessage") && 
-                        senderData.getString("lastMessage") == message) {
-                        return true
+                    if (senderData.has("lastMessage")) {
+                        val lastMessage = senderData.getString("lastMessage")
+                        
+                        // CRITICAL FIX: Only consider it a duplicate if it's exactly the same message
+                        // AND it was sent within a very short time window (10 seconds)
+                        // This prevents legitimate duplicate notifications from blocking replies
+                        if (lastMessage == message && timeSinceLastReply < 10000) {
+                            Log.e(TAG, "🔄 Exact same message detected within 10 seconds, skipping reply")
+                            return true
+                        }
+                        
+                        // IMPROVEMENT: For single notifications with longer time gaps, 
+                        // we should still reply if it's the same message but after some time
+                        // This handles the case where someone sends the exact same message twice
+                        
+                        // If messages are similar but not identical, use normal rate limiting rules
+                        if (areMessagesSimilar(lastMessage, message) && !messageSignificantlyDifferent(lastMessage, message)) {
+                            Log.e(TAG, "⚠️ Similar message within rate limit period, applying normal rate limit")
+                            return true
+                        } else {
+                            Log.e(TAG, "✅ Messages are different enough to trigger a new reply")
+                        }
                     }
                     
-                    // If it's a different message but from same sender within rate limit,
-                    // check message similarity to avoid replying to similar messages
-                    val lastMessage = senderData.optString("lastMessage", "")
-                    if (lastMessage.isNotEmpty() && areMessagesSimilar(lastMessage, message)) {
-                        return true
-                    }
-                    
-                    // If it's a very short message, apply stricter rate limiting
+                    // If it's a very short message, only rate limit for very short periods (15 seconds)
+                    // This ensures short messages still get replies but not too frequently
                     if (message.length < 5) {
-                        return true
-                    }
-                    
-                    // If the new message is significantly different, allow a reply
-                    if (messageSignificantlyDifferent(lastMessage, message)) {
-                        return false
+                        val shortMessageRateLimit = 15000L // 15 seconds for very short messages
+                        if (timeSinceLastReply < shortMessageRateLimit) {
+                            Log.e(TAG, "📝 Very short message, applying short message rate limit")
+                            return true
+                        } else {
+                            Log.e(TAG, "✅ Short message but outside short message rate limit, allowing reply")
+                            return false
+                        }
                     }
                 }
+                
+                // CRITICAL FIX: Add special cases for common single-word messages that should
+                // always get replies (like "Hi", "Hello", "Ok", etc.)
+                if (isCommonSingleWordMessage(message)) {
+                    Log.e(TAG, "✅ Common greeting or single-word message, allowing reply regardless of rate limit")
+                    return false
+                }
+                
+                Log.e(TAG, "✅ Outside rate limit period, allowing reply")
+            } else {
+                Log.e(TAG, "✅ First message from this sender, allowing reply")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking replied conversations: ${e.message}")
+            Log.e(TAG, "❌ Error checking replied conversations: ${e.message}")
         }
         
         return false
@@ -786,5 +816,61 @@ class RcsAutoReplyManager(private val context: Context) {
         
         val combined = "SENDER:$senderNumber|MESSAGE:$message|TIME:${System.currentTimeMillis()}"
         return combined.toByteArray()
+    }
+    
+    /**
+     * Reset/clear all remembered replied conversations
+     * This is useful for testing to ensure we can force a fresh response
+     */
+    fun clearRepliedConversations() {
+        try {
+            Log.e(TAG, "🧹 Clearing all replied conversations for testing")
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(RCS_REPLIED_CONVERSATIONS_KEY, "{}").apply()
+            Log.e(TAG, "✅ Successfully cleared replied conversations")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error clearing replied conversations: ${e.message}")
+        }
+    }
+    
+    /**
+     * Adjust rate limit to a testing-friendly value
+     * Use a shorter time for testing (30 seconds)
+     */
+    fun setTestingRateLimit() {
+        try {
+            Log.e(TAG, "⏱️ Setting testing-friendly rate limit")
+            val testRateLimit = 30 * 1000L // 30 seconds for testing
+            setRateLimit(testRateLimit)
+            Log.e(TAG, "✅ Set rate limit to ${testRateLimit}ms for testing")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error setting testing rate limit: ${e.message}")
+        }
+    }
+    
+    /**
+     * Check if a message is a common greeting or single-word message
+     * These should always get replies regardless of rate limits
+     */
+    private fun isCommonSingleWordMessage(message: String): Boolean {
+        val trimmed = message.trim().lowercase()
+        
+        // Common single-word greetings and replies
+        val commonWords = setOf(
+            "hi", "hello", "hey", "hola", "yo", 
+            "ok", "okay", "k", "yes", "no", "yeah",
+            "sure", "thanks", "thx", "ty", "test"
+        )
+        
+        // Check if it's a single word
+        if (!trimmed.contains(" ") && commonWords.contains(trimmed)) {
+            return true
+        }
+        
+        // Also check for very short greetings with punctuation
+        val noSymbols = trimmed.replace(Regex("[.!?,]"), "")
+        return commonWords.contains(noSymbols) || 
+               noSymbols.endsWith("?") || // Questions should always get replies
+               (noSymbols.length < 5 && noSymbols.isNotEmpty()) // Very short messages
     }
 } 
