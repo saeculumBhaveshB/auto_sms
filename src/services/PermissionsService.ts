@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Platform, NativeModules } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   PERMISSIONS,
@@ -9,8 +9,11 @@ import {
   Permission,
 } from "react-native-permissions";
 
+const { PermissionsManager } = NativeModules;
+
 // Keys for storing permission status
 const PERMISSION_STORAGE_KEY_PREFIX = "@AutoSMS:Permission:";
+const NOTIFICATION_LISTENER_KEY = "@AutoSMS:NotificationListenerEnabled";
 
 // Define our required permissions
 export type PermissionType =
@@ -19,7 +22,9 @@ export type PermissionType =
   | "sendSms"
   | "readSms"
   | "readContacts"
-  | "autoReply";
+  | "autoReply"
+  | "notificationListener"
+  | "sensitiveBadges";
 
 // Define permission info for UI
 export interface PermissionInfo {
@@ -83,6 +88,83 @@ export type PermissionStatus =
  */
 class PermissionsService {
   /**
+   * Check if notification listener service is enabled
+   */
+  async isNotificationListenerEnabled(): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      // Check if native method is available
+      if (PermissionsManager?.checkPermission) {
+        const result = await PermissionsManager.checkPermission(
+          "NOTIFICATION_LISTENER"
+        );
+        return result === true;
+      }
+
+      // Fallback to stored value if native method not available
+      const storedValue = await AsyncStorage.getItem(NOTIFICATION_LISTENER_KEY);
+      return storedValue === "true";
+    } catch (error) {
+      console.error("Error checking notification listener permission:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Request notification listener permission by opening system settings
+   */
+  async openNotificationListenerSettings(): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      // Use native method if available
+      if (PermissionsManager?.openNotificationListenerSettings) {
+        await PermissionsManager.openNotificationListenerSettings();
+        return true;
+      } else {
+        // Fallback to general settings
+        await this.openSettings();
+        return true;
+      }
+    } catch (error) {
+      console.error("Error opening notification listener settings:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Check sensitive notifications permission (Android 15+)
+   */
+  async checkSensitiveNotificationsPermission(): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      // Check if native method is available
+      if (PermissionsManager?.checkPermission) {
+        const result = await PermissionsManager.checkPermission(
+          "RECEIVE_SENSITIVE_NOTIFICATIONS"
+        );
+        return result === true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error(
+        "Error checking sensitive notifications permission:",
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
    * Check a single permission status
    */
   async checkPermission(
@@ -91,6 +173,18 @@ class PermissionsService {
     // Only Android is supported
     if (Platform.OS !== "android") {
       return "unavailable";
+    }
+
+    // Special handling for notification listener
+    if (permissionType === "notificationListener") {
+      const isEnabled = await this.isNotificationListenerEnabled();
+      return isEnabled ? "granted" : "denied";
+    }
+
+    // Special handling for sensitive notifications
+    if (permissionType === "sensitiveBadges") {
+      const isEnabled = await this.checkSensitiveNotificationsPermission();
+      return isEnabled ? "granted" : "denied";
     }
 
     const permissionInfo = REQUIRED_PERMISSIONS.find(
@@ -118,6 +212,32 @@ class PermissionsService {
     // Only Android is supported
     if (Platform.OS !== "android") {
       return "unavailable";
+    }
+
+    // Special handling for notification listener
+    if (permissionType === "notificationListener") {
+      await this.openNotificationListenerSettings();
+      // We can't immediately know if the user enabled it, so return pending
+      return "denied";
+    }
+
+    // Special handling for sensitive notifications
+    if (permissionType === "sensitiveBadges") {
+      if (PermissionsManager?.requestPermission) {
+        try {
+          const result = await PermissionsManager.requestPermission(
+            "RECEIVE_SENSITIVE_NOTIFICATIONS"
+          );
+          return result ? "granted" : "denied";
+        } catch (e) {
+          console.error(
+            "Error requesting sensitive notifications permission:",
+            e
+          );
+          return "denied";
+        }
+      }
+      return "denied";
     }
 
     const permissionInfo = REQUIRED_PERMISSIONS.find(

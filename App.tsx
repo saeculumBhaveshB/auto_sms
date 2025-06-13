@@ -82,13 +82,48 @@ function App(): React.JSX.Element {
       await AutoReplyService.setLLMAutoReplyEnabled(true);
       console.log("LLM Auto Reply enabled via AutoReplyService");
 
+      // Enable RCS auto-reply
+      if (AutoReplyModule?.setRcsAutoReplyEnabled) {
+        await AutoReplyService.setRcsAutoReplyEnabled(true);
+        console.log("RCS Auto Reply enabled via AutoReplyService");
+      }
+
       // Also set AsyncStorage values for consistency
       await AsyncStorage.setItem("@AutoSMS:AIEnabled", "true");
       await AsyncStorage.setItem("@AutoSMS:Enabled", "true");
+      await AsyncStorage.setItem("@AutoSMS:RcsAutoReplyEnabled", "true");
 
       return true;
     } catch (error) {
       console.error("Error initializing SharedPreferences:", error);
+      return false;
+    }
+  }, []);
+
+  // Check if notification listener permission is granted
+  const checkNotificationListenerPermission = useCallback(async () => {
+    try {
+      if (PermissionsService.isNotificationListenerEnabled) {
+        const isEnabled =
+          await PermissionsService.isNotificationListenerEnabled();
+        console.log(
+          `Notification listener permission: ${
+            isEnabled ? "granted" : "not granted"
+          }`
+        );
+
+        if (!isEnabled) {
+          console.log("Opening notification listener settings");
+          await PermissionsService.openNotificationListenerSettings();
+        }
+
+        return isEnabled;
+      } else {
+        console.warn("Notification listener permission check not available");
+        return false;
+      }
+    } catch (error) {
+      console.error("Error checking notification listener permission:", error);
       return false;
     }
   }, []);
@@ -115,6 +150,8 @@ function App(): React.JSX.Element {
         const autoReplyEnabled = await AutoReplyService.isAutoReplyEnabled();
         const llmAutoReplyEnabled =
           await AutoReplyService.isLLMAutoReplyEnabled();
+        const rcsAutoReplyEnabled =
+          await AutoReplyService.isRcsAutoReplyEnabled();
 
         console.log(
           `Auto-reply status: ${autoReplyEnabled ? "enabled" : "disabled"}`
@@ -124,6 +161,16 @@ function App(): React.JSX.Element {
             llmAutoReplyEnabled ? "enabled" : "disabled"
           }`
         );
+        console.log(
+          `RCS auto-reply status: ${
+            rcsAutoReplyEnabled ? "enabled" : "disabled"
+          }`
+        );
+
+        // Check notification listener permission for RCS auto-reply
+        if (rcsAutoReplyEnabled) {
+          await checkNotificationListenerPermission();
+        }
 
         // Check permissions and start monitoring if needed
         const hasPermissions =
@@ -184,6 +231,8 @@ function App(): React.JSX.Element {
         const autoReplyEnabled = await AutoReplyService.isAutoReplyEnabled();
         const llmAutoReplyEnabled =
           await AutoReplyService.isLLMAutoReplyEnabled();
+        const rcsAutoReplyEnabled =
+          await AutoReplyService.isRcsAutoReplyEnabled();
 
         // Re-enable auto-reply if it was disabled
         if (!autoReplyEnabled) {
@@ -196,6 +245,15 @@ function App(): React.JSX.Element {
           console.log("LLM Auto Reply disabled, re-enabling...");
           await AutoReplyService.setLLMAutoReplyEnabled(true);
         }
+
+        // Re-enable RCS auto-reply if it was disabled
+        if (!rcsAutoReplyEnabled && AutoReplyModule?.setRcsAutoReplyEnabled) {
+          console.log("RCS Auto Reply disabled, re-enabling...");
+          await AutoReplyService.setRcsAutoReplyEnabled(true);
+
+          // Re-check notification listener permission
+          await checkNotificationListenerPermission();
+        }
       } catch (error) {
         console.error("Error in service check interval:", error);
       }
@@ -204,7 +262,11 @@ function App(): React.JSX.Element {
     return () => {
       clearInterval(serviceCheckInterval);
     };
-  }, [initAttempts, initializeSharedPreferences]);
+  }, [
+    initAttempts,
+    initializeSharedPreferences,
+    checkNotificationListenerPermission,
+  ]);
 
   return (
     <SafeAreaView style={backgroundStyle}>

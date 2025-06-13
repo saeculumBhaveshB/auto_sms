@@ -21,6 +21,7 @@ import java.io.FileInputStream
 import com.itextpdf.text.pdf.PdfReader
 import com.itextpdf.text.pdf.parser.PdfTextExtractor
 import com.facebook.react.bridge.WritableMap
+import kotlinx.coroutines.runBlocking
 
 /**
  * BroadcastReceiver to handle incoming SMS messages for AI responses
@@ -53,6 +54,8 @@ class SmsReceiver : BroadcastReceiver() {
             Log.e(TAG, "❌ SmsReceiver - Not an SMS_RECEIVED_ACTION, ignoring")
             return
         }
+        
+        Log.e(TAG, "✅✅✅ SMS RECEIVED - Processing incoming SMS ✅✅✅")
         
         // Initialize local LLM as early as possible
         initializeLocalLLM(context)
@@ -108,10 +111,18 @@ class SmsReceiver : BroadcastReceiver() {
                 val phoneNumber = smsMessage.originatingAddress ?: continue
                 val messageBody = smsMessage.messageBody ?: continue
                 
-                Log.e(TAG, "📩 SmsReceiver - Received SMS from $phoneNumber: $messageBody")
+                // Enhanced SMS Message Details Logging with unique tag for easier filtering
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: 📩📩📩 SMS MESSAGE DETAILS 📩📩📩")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ From: $phoneNumber")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message: $messageBody")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Timestamp: ${System.currentTimeMillis()}")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message Length: ${messageBody.length} characters")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Display Originating Address: ${smsMessage.displayOriginatingAddress}")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message Class: ${smsMessage.messageClass}")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message ID: ${smsMessage.indexOnIcc}")
                 
                 val isFromMissedCallNumber = wasRecentMissedCallNumber(context, phoneNumber)
-                Log.e(TAG, "🔍 SmsReceiver - Is from missed call number: $isFromMissedCallNumber")
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Is from missed call number: $isFromMissedCallNumber")
                 
                 try {
                     // CRITICAL: Process according to enabled features with priority order:

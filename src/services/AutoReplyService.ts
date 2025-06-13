@@ -3,12 +3,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import LocalLLMService from "./LocalLLMService";
 import RNFS from "react-native-fs";
 
-const { CallSmsModule } = NativeModules;
+const { CallSmsModule, AutoReplyModule } = NativeModules;
 
 // Storage keys
 const AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled";
 const LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled";
 const LLM_CONTEXT_LENGTH_KEY = "@AutoSMS:LLMContextLength";
+const RCS_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:RcsAutoReplyEnabled";
+const RCS_AUTO_REPLY_MESSAGE_KEY = "@AutoSMS:RcsAutoReplyMessage";
 
 /**
  * Service to manage auto-reply features
@@ -49,6 +51,115 @@ class AutoReplyService {
       return true;
     } catch (error) {
       console.error("Error setting auto-reply enabled:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if RCS auto-reply is enabled
+   */
+  async isRcsAutoReplyEnabled(): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      if (AutoReplyModule?.isRcsAutoReplyEnabled) {
+        // Use native method if available
+        return await AutoReplyModule.isRcsAutoReplyEnabled();
+      } else {
+        // Fall back to AsyncStorage
+        const storedValue = await AsyncStorage.getItem(
+          RCS_AUTO_REPLY_ENABLED_KEY
+        );
+        return storedValue === "true";
+      }
+    } catch (error) {
+      console.error("Error checking if RCS auto-reply is enabled:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Set RCS auto-reply enabled state
+   */
+  async setRcsAutoReplyEnabled(enabled: boolean): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      console.log(`[AutoReplyService] Setting RCS auto-reply to: ${enabled}`);
+
+      // Save to SharedPreferences through native module
+      if (AutoReplyModule?.setRcsAutoReplyEnabled) {
+        await AutoReplyModule.setRcsAutoReplyEnabled(enabled);
+      } else {
+        console.warn(
+          "[AutoReplyService] Native RCS auto-reply method not available"
+        );
+      }
+
+      // Also save to AsyncStorage for easier access in React
+      await AsyncStorage.setItem(RCS_AUTO_REPLY_ENABLED_KEY, String(enabled));
+
+      return true;
+    } catch (error) {
+      console.error("Error setting RCS auto-reply enabled:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get RCS auto-reply message
+   */
+  async getRcsAutoReplyMessage(): Promise<string> {
+    try {
+      if (Platform.OS !== "android") {
+        return "I'm currently unavailable. I'll respond as soon as possible.";
+      }
+
+      if (AutoReplyModule?.getRcsAutoReplyMessage) {
+        // Use native method if available
+        return await AutoReplyModule.getRcsAutoReplyMessage();
+      } else {
+        // Fall back to AsyncStorage
+        const message = await AsyncStorage.getItem(RCS_AUTO_REPLY_MESSAGE_KEY);
+        return (
+          message ||
+          "I'm currently unavailable. I'll respond as soon as possible."
+        );
+      }
+    } catch (error) {
+      console.error("Error getting RCS auto-reply message:", error);
+      return "I'm currently unavailable. I'll respond as soon as possible.";
+    }
+  }
+
+  /**
+   * Set RCS auto-reply message
+   */
+  async setRcsAutoReplyMessage(message: string): Promise<boolean> {
+    try {
+      if (Platform.OS !== "android") {
+        return false;
+      }
+
+      // Save to SharedPreferences through native module
+      if (AutoReplyModule?.setRcsAutoReplyMessage) {
+        await AutoReplyModule.setRcsAutoReplyMessage(message);
+      } else {
+        console.warn(
+          "[AutoReplyService] Native RCS message setter not available"
+        );
+      }
+
+      // Also save to AsyncStorage for easier access in React
+      await AsyncStorage.setItem(RCS_AUTO_REPLY_MESSAGE_KEY, message);
+
+      return true;
+    } catch (error) {
+      console.error("Error setting RCS auto-reply message:", error);
       return false;
     }
   }

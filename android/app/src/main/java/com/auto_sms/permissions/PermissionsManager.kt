@@ -2,6 +2,7 @@ package com.auto_sms.permissions
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -90,6 +91,21 @@ class PermissionsModule(reactContext: ReactApplicationContext) :
                     promise.resolve(true) // Notification permission automatically granted for Android < 13
                 }
             }
+            "NOTIFICATION_LISTENER" -> {
+                val hasPermission = isNotificationListenerEnabled()
+                promise.resolve(hasPermission)
+            }
+            "RECEIVE_SENSITIVE_NOTIFICATIONS" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 15 API 35
+                    val hasPermission = ContextCompat.checkSelfPermission(
+                        activity, 
+                        "android.permission.RECEIVE_SENSITIVE_NOTIFICATIONS"
+                    ) == PackageManager.PERMISSION_GRANTED
+                    promise.resolve(hasPermission)
+                } else {
+                    promise.resolve(true) // Permission not required for Android < 15
+                }
+            }
             else -> promise.reject("INVALID_PERMISSION", "Invalid permission type: $permission")
         }
     }
@@ -169,6 +185,18 @@ class PermissionsModule(reactContext: ReactApplicationContext) :
                     promise.resolve(true) // Notification permission automatically granted for Android < 13
                 }
             }
+            "NOTIFICATION_LISTENER" -> {
+                openNotificationListenerSettings()
+                promise.resolve(false) // User needs to manually enable it in settings
+            }
+            "RECEIVE_SENSITIVE_NOTIFICATIONS" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 15 API 35
+                    openNotificationListenerSettings() // This will lead them to the screen where they can enable sensitive notifications
+                    promise.resolve(false) // User needs to manually enable it in settings
+                } else {
+                    promise.resolve(true) // Permission not required for Android < 15
+                }
+            }
             else -> promise.reject("INVALID_PERMISSION", "Invalid permission type: $permission")
         }
     }
@@ -190,6 +218,38 @@ class PermissionsModule(reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             promise.reject("CANNOT_OPEN_SETTINGS", "Cannot open settings: ${e.message}")
         }
+    }
+    
+    @ReactMethod
+    fun openNotificationListenerSettings(promise: Promise? = null) {
+        val activity = currentActivity
+        if (activity == null) {
+            promise?.reject(E_ACTIVITY_DOES_NOT_EXIST, "Activity doesn't exist")
+            return
+        }
+
+        try {
+            val intent: Intent
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // For Android 8.0+
+                intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            } else {
+                // For older versions
+                intent = Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+            }
+            activity.startActivity(intent)
+            promise?.resolve(true)
+        } catch (e: Exception) {
+            promise?.reject("CANNOT_OPEN_NOTIFICATION_SETTINGS", "Cannot open notification listener settings: ${e.message}")
+        }
+    }
+    
+    private fun isNotificationListenerEnabled(): Boolean {
+        val context = reactApplicationContext
+        val packageName = context.packageName
+        val serviceString = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+        
+        return serviceString != null && serviceString.contains(packageName)
     }
 
     override fun onRequestPermissionsResult(

@@ -12,6 +12,13 @@ class AutoReplyModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     // Document-based LLM auto-reply keys
     private val LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled"
     private val LLM_CONTEXT_LENGTH_KEY = "@AutoSMS:LLMContextLength"
+    // RCS auto-reply keys
+    private val RCS_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:RcsAutoReplyEnabled"
+    private val RCS_AUTO_REPLY_MESSAGE_KEY = "@AutoSMS:RcsAutoReplyMessage"
+    private val RCS_RATE_LIMIT_KEY = "@AutoSMS:RcsRateLimit"
+    
+    // Create an instance of RcsAutoReplyManager
+    private val rcsManager by lazy { RcsAutoReplyManager(reactApplicationContext) }
     
     override fun getName(): String {
         return "AutoReplyModule"
@@ -140,6 +147,154 @@ class AutoReplyModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         } catch (e: Exception) {
             Log.e(TAG, "Error getting missed call numbers: ${e.message}")
             promise.reject("GET_MISSED_CALLS_ERROR", "Failed to get missed call numbers: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun isRcsAutoReplyEnabled(promise: Promise) {
+        try {
+            val enabled = rcsManager.isEnabled()
+            Log.d(TAG, "RCS auto-reply enabled check: $enabled")
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting RCS auto-reply enabled: ${e.message}")
+            promise.reject("GET_RCS_AUTO_REPLY_ERROR", "Failed to get RCS auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setRcsAutoReplyEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            rcsManager.setEnabled(enabled)
+            Log.d(TAG, "RCS auto-reply feature ${if (enabled) "enabled" else "disabled"}")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting RCS auto-reply enabled: ${e.message}")
+            promise.reject("SET_RCS_AUTO_REPLY_ERROR", "Failed to set RCS auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun isRcsLLMEnabled(promise: Promise) {
+        try {
+            val enabled = rcsManager.isLLMEnabled()
+            Log.d(TAG, "RCS LLM auto-reply enabled check: $enabled")
+            promise.resolve(enabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting RCS LLM auto-reply enabled: ${e.message}")
+            promise.reject("GET_RCS_LLM_ERROR", "Failed to get RCS LLM auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setRcsLLMEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            rcsManager.setLLMEnabled(enabled)
+            Log.d(TAG, "RCS LLM auto-reply feature ${if (enabled) "enabled" else "disabled"}")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting RCS LLM auto-reply enabled: ${e.message}")
+            promise.reject("SET_RCS_LLM_ERROR", "Failed to set RCS LLM auto-reply enabled: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun getRcsAutoReplyMessage(promise: Promise) {
+        try {
+            val message = rcsManager.getDefaultMessage()
+            promise.resolve(message)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting RCS auto-reply message: ${e.message}")
+            promise.reject("GET_RCS_AUTO_REPLY_MESSAGE_ERROR", "Failed to get RCS auto-reply message: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setRcsAutoReplyMessage(message: String, promise: Promise) {
+        try {
+            rcsManager.setDefaultMessage(message)
+            Log.d(TAG, "Set RCS auto-reply message to: $message")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting RCS auto-reply message: ${e.message}")
+            promise.reject("SET_RCS_AUTO_REPLY_MESSAGE_ERROR", "Failed to set RCS auto-reply message: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun getRcsRateLimit(promise: Promise) {
+        try {
+            val rateLimit = rcsManager.getRateLimit()
+            promise.resolve(rateLimit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting RCS rate limit: ${e.message}")
+            promise.reject("GET_RCS_RATE_LIMIT_ERROR", "Failed to get RCS rate limit: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun setRcsRateLimit(rateLimit: Double, promise: Promise) {
+        try {
+            rcsManager.setRateLimit(rateLimit.toLong())
+            Log.d(TAG, "Set RCS rate limit to: $rateLimit ms")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting RCS rate limit: ${e.message}")
+            promise.reject("SET_RCS_RATE_LIMIT_ERROR", "Failed to set RCS rate limit: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun clearRcsRepliedConversations(promise: Promise) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putString(RcsAutoReplyManager.RCS_REPLIED_CONVERSATIONS_KEY, "{}").apply()
+            Log.d(TAG, "Cleared RCS replied conversations")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing RCS replied conversations: ${e.message}")
+            promise.reject("CLEAR_RCS_REPLIED_CONVERSATIONS_ERROR", "Failed to clear RCS replied conversations: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun getRcsAutoReplyLogs(promise: Promise) {
+        try {
+            val logs = rcsManager.getLogs()
+            val resultArray = Arguments.createArray()
+            
+            for (i in 0 until logs.length()) {
+                val log = logs.getJSONObject(i)
+                val item = Arguments.createMap()
+                
+                item.putString("sender", log.getString("sender"))
+                item.putString("received", log.getString("received"))
+                item.putString("sent", log.getString("sent"))
+                item.putBoolean("success", log.getBoolean("success"))
+                item.putDouble("timestamp", log.getLong("timestamp").toDouble())
+                item.putString("type", log.getString("type"))
+                item.putBoolean("isLLM", log.optBoolean("isLLM", false))
+                
+                resultArray.pushMap(item)
+            }
+            
+            Log.d(TAG, "Got ${resultArray.size()} RCS auto-reply logs")
+            promise.resolve(resultArray)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting RCS auto-reply logs: ${e.message}")
+            promise.reject("GET_RCS_AUTO_REPLY_LOGS_ERROR", "Failed to get RCS auto-reply logs: ${e.message}")
+        }
+    }
+    
+    @ReactMethod
+    fun clearRcsAutoReplyLogs(promise: Promise) {
+        try {
+            rcsManager.clearLogs()
+            Log.d(TAG, "Cleared RCS auto-reply logs")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing RCS auto-reply logs: ${e.message}")
+            promise.reject("CLEAR_RCS_AUTO_REPLY_LOGS_ERROR", "Failed to clear RCS auto-reply logs: ${e.message}")
         }
     }
     

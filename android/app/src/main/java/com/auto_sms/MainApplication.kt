@@ -13,6 +13,8 @@ import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 import com.auto_sms.permissions.PermissionsPackage
 import com.auto_sms.callsms.CallSmsPackage
+import com.auto_sms.callsms.RcsPackage
+import com.auto_sms.callsms.LoggingPackage
 import com.auto_sms.docparser.DocParserPackage
 import com.auto_sms.llm.LocalLLMPackage
 
@@ -28,6 +30,8 @@ class MainApplication : Application(), ReactApplication {
               add(CallSmsPackage())
               add(DocParserPackage())
               add(LocalLLMPackage())
+              add(RcsPackage())
+              add(LoggingPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"
