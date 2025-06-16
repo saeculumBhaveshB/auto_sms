@@ -13,6 +13,8 @@ import android.content.SharedPreferences
 import android.os.Build
 import java.util.regex.Pattern
 import android.content.BroadcastReceiver
+import android.provider.Settings
+import android.content.ComponentName
 
 class RcsNotificationListener : NotificationListenerService() {
     private val TAG = "RcsNotification"
@@ -30,11 +32,17 @@ class RcsNotificationListener : NotificationListenerService() {
     
     private lateinit var rcsManager: RcsAutoReplyManager
     
+    // Add at the beginning of the class after existing constant declarations
+    private val ACTION_NOTIFICATION_LISTENER_SETTINGS = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"
+    
     override fun onCreate() {
         super.onCreate()
         
         // Create RCS Auto-Reply Manager
         rcsManager = RcsAutoReplyManager(applicationContext)
+        
+        // Check if notification listener is enabled
+        checkNotificationListenerEnabled()
         
         // Check if RCS auto-reply is enabled
         val isEnabled = rcsManager.isEnabled()
@@ -50,10 +58,18 @@ class RcsNotificationListener : NotificationListenerService() {
         val filter = IntentFilter().apply {
             addAction("com.auto_sms.RESET_RCS_STATE")
             addAction("com.auto_sms.SET_TESTING_RATE_LIMIT")
+            addAction("com.auto_sms.TEST_RCS_AUTO_REPLY")
         }
         
         applicationContext.registerReceiver(testCommandReceiver, filter)
         Log.e(TAG, "🔄 Registered test command receiver")
+        
+        // Register for notification listener changed broadcasts
+        val notificationListenerFilter = IntentFilter()
+        notificationListenerFilter.addAction("android.service.notification.NotificationListenerService")
+        notificationListenerFilter.addAction("enabled_notification_listeners")
+        applicationContext.registerReceiver(notificationListenerStatusReceiver, notificationListenerFilter)
+        Log.e(TAG, "🔄 Registered notification listener status receiver")
     }
     
     // BroadcastReceiver for test commands
@@ -74,7 +90,23 @@ class RcsNotificationListener : NotificationListenerService() {
                     Log.e(TAG, "⏱️ Received command to set testing rate limit")
                     rcsManager.setTestingRateLimit()
                 }
+                "com.auto_sms.TEST_RCS_AUTO_REPLY" -> {
+                    Log.e(TAG, "🧪 Received test RCS auto-reply command")
+                    val sender = intent.getStringExtra("sender") ?: "Test Sender"
+                    val message = intent.getStringExtra("message") ?: "Test Message"
+                    
+                    // Process the test message
+                    processManualTestMessage(sender, message)
+                }
             }
+        }
+    }
+    
+    // Add a broadcast receiver to monitor notification listener changes
+    private val notificationListenerStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            Log.e(TAG, "📣 Notification listener status change detected")
+            checkNotificationListenerEnabled()
         }
     }
     
@@ -89,6 +121,14 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "❌ Error unregistering test command receiver: ${e.message}")
         }
         
+        // Unregister the notification listener status receiver
+        try {
+            applicationContext.unregisterReceiver(notificationListenerStatusReceiver)
+            Log.e(TAG, "🔄 Unregistered notification listener status receiver")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error unregistering notification listener status receiver: ${e.message}")
+        }
+        
         // Clean up resources
         if (::rcsManager.isInitialized) {
             rcsManager.cleanup()
@@ -99,6 +139,14 @@ class RcsNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.e(TAG, "✅✅✅ RCS Notification Listener connected to system ✅✅✅")
+        
+        // Double check that we're actually enabled
+        val enabled = checkNotificationListenerEnabled()
+        if (enabled) {
+            Log.e(TAG, "🔑 Notification listener permission confirmed")
+        } else {
+            Log.e(TAG, "⚠️ Warning: Listener connected but appears to be disabled in settings")
+        }
         
         // Check if RCS auto-reply is enabled
         val isEnabled = rcsManager.isEnabled()
@@ -120,6 +168,9 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "   • Post Time: ${sbn.postTime}")
             Log.e(TAG, "   • Category: ${sbn.notification.category}")
             
+            // Always dump debug data about the notification to help troubleshoot
+            dumpNotificationInfo(sbn)
+            
             // Check if RCS auto-reply is enabled
             if (!rcsManager.isEnabled()) {
                 Log.e(TAG, "❌ RCS auto-reply is disabled, ignoring notification")
@@ -137,38 +188,30 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "✅ Notification is from supported messaging app: $packageName")
             
             val notification = sbn.notification
+            val extras = notification.extras
             
-            // CRITICAL FIX: Special handling for service category notifications from Google Messages
-            // These often contain important messaging data despite not being standard message notifications
-            if (notification.category == "service" && 
-                (packageName == "com.google.android.apps.messaging" || 
-                 packageName == "com.google.android.apps.messaging.debug")) {
-                Log.e(TAG, "🔍 Processing service category notification from Google Messages")
-                processServiceNotification(sbn)
+            // CRITICAL FIX: For Google Messages, process ALL notifications regardless of category
+            // This ensures we don't miss any RCS messages due to inconsistent notification formats
+            if (packageName == "com.google.android.apps.messaging" || 
+                packageName == "com.google.android.apps.messaging.debug") {
+                
+                Log.e(TAG, "🔍 Processing ALL notifications from Google Messages, category: ${notification.category}")
+                processGoogleMessagesNotification(sbn)
                 return
             }
             
+            // For other messaging apps, continue with standard processing
+            
             // IMPROVEMENT: Be more lenient with notification categories
-            // Some messaging apps might not set CATEGORY_MESSAGE correctly
             if (notification.category != Notification.CATEGORY_MESSAGE && 
                 notification.category != Notification.CATEGORY_SOCIAL &&
-                notification.category != null) { // Allow null categories
+                notification.category != null) { 
                 
-                // CRITICAL FIX: Don't reject notifications from Google Messages regardless of category
-                // Many important RCS notifications come with category "service" or other categories
-                if (packageName == "com.google.android.apps.messaging" ||
-                    packageName == "com.google.android.apps.messaging.debug") {
-                    Log.e(TAG, "⚠️ Found non-message category (${notification.category}) but allowing because it's from Google Messages")
-                } else {
-                    Log.e(TAG, "❌ Ignoring non-message notification category: ${notification.category}")
-                    return
-                }
+                Log.e(TAG, "❌ Ignoring non-message notification category: ${notification.category}")
+                return
             }
             
-            Log.e(TAG, "✅ Notification is being processed (category: ${notification.category ?: "null"})")
-            
             // Extract notification data
-            val extras = notification.extras
             val title = extras.getString(Notification.EXTRA_TITLE)
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             
@@ -176,7 +219,6 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "LOGTAG_RCS_DETAILS: 📨📨📨 RCS MESSAGE DETAILS 📨📨📨")
             
             // CRITICAL FIX: Check for messaging-specific extras that might indicate an RCS message
-            // This helps with notifications that don't have standard title/text fields
             val hasMessagingExtras = extras.containsKey("android.messages") || 
                                     extras.containsKey("android.messagingUser") ||
                                     extras.containsKey("extra_im_notification_message_ids") ||
@@ -217,7 +259,6 @@ class RcsNotificationListener : NotificationListenerService() {
                 }
                 
                 // CRITICAL FIX: Try to extract text from android.messages array if present
-                // This is often where Google Messages stores the actual message content
                 if (fallbackText == null && extras.containsKey("android.messages")) {
                     try {
                         val messages = extras.getParcelableArray("android.messages")
@@ -253,6 +294,130 @@ class RcsNotificationListener : NotificationListenerService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌❌❌ Error processing notification: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Process ALL notifications from Google Messages app, using more aggressive detection
+     * This ensures we don't miss RCS messages due to inconsistent notification formats
+     */
+    private fun processGoogleMessagesNotification(sbn: StatusBarNotification) {
+        try {
+            val notification = sbn.notification
+            val extras = notification.extras
+            
+            Log.e(TAG, "LOGTAG_RCS_DETAILS: 📨📨📨 GOOGLE MESSAGES NOTIFICATION 📨📨📨")
+            
+            // Always assume Google Messages notifications are RCS-related unless proven otherwise
+            var isRcsMessage = true
+            
+            // Try to extract sender and message from various possible locations
+            var sender = extras.getString(Notification.EXTRA_TITLE) 
+                      ?: extras.getString(Notification.EXTRA_CONVERSATION_TITLE)
+                      ?: extras.getString(Notification.EXTRA_SUB_TEXT)
+                      ?: "Unknown Sender"
+            
+            var message: String? = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+                        ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+                        ?: extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()
+            
+            Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Initial extraction - Sender: $sender, Message: $message")
+            
+            // If message is still null, try to extract from android.messages array
+            if (message == null && extras.containsKey("android.messages")) {
+                try {
+                    val messages = extras.getParcelableArray("android.messages")
+                    if (messages != null && messages.isNotEmpty()) {
+                        // Try to get the last (most recent) message
+                        val lastMessage = messages.last()
+                        
+                        // Try to get sender name if available
+                        try {
+                            val personField = lastMessage.javaClass.getDeclaredField("mPerson")
+                            personField.isAccessible = true
+                            val person = personField.get(lastMessage)
+                            
+                            if (person != null) {
+                                val nameField = person.javaClass.getDeclaredField("mName")
+                                nameField.isAccessible = true
+                                val name = nameField.get(person) as? CharSequence
+                                if (name != null && name.isNotEmpty()) {
+                                    // If we already have a sender name, only replace if this one is better
+                                    if (sender == "Unknown Sender" || name.toString().length > sender.length) {
+                                        sender = name.toString()
+                                        Log.e(TAG, "🔍 Extracted better sender name: $sender")
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error extracting sender from message: ${e.message}")
+                        }
+                        
+                        // Extract message text
+                        try {
+                            val textField = lastMessage.javaClass.getDeclaredField("mText")
+                            textField.isAccessible = true
+                            message = (textField.get(lastMessage) as? CharSequence)?.toString()
+                            Log.e(TAG, "🔍 Extracted message text from android.messages: $message")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error extracting text from message: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error processing messages array: ${e.message}")
+                }
+            }
+            
+            // If message is still null, try to use ticker text
+            if (message == null) {
+                notification.tickerText?.let {
+                    message = it.toString()
+                    Log.e(TAG, "🔍 Using ticker text as message: $message")
+                }
+            }
+            
+            // If message is STILL null, check if it's a summary notification
+            if (message == null) {
+                // Check if this might be a group summary notification
+                val isGroupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+                
+                if (isGroupSummary) {
+                    Log.e(TAG, "ℹ️ This appears to be a group summary notification, not a message")
+                    isRcsMessage = false
+                } else {
+                    // Last resort - use a placeholder
+                    message = "New message notification (ID: ${sbn.id})"
+                    Log.e(TAG, "⚠️ Using generic fallback text: $message")
+                }
+            }
+            
+            // Check for known non-message notifications from Google Messages
+            val nonMessageTitles = listOf(
+                "checking for new messages",
+                "updating",
+                "downloading",
+                "chat features",
+                "messages is running",
+                "verifying",
+                "connected"
+            )
+            
+            val titleLower = sender.lowercase()
+            if (nonMessageTitles.any { titleLower.contains(it) }) {
+                Log.e(TAG, "ℹ️ This appears to be a status notification, not a message")
+                isRcsMessage = false
+            }
+            
+            Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Final extraction - Sender: $sender, Message: $message, Is RCS: $isRcsMessage")
+            
+            // If we have a message and it looks like an RCS message, process it
+            if (message != null && isRcsMessage) {
+                processMessageNotification(sbn, notification, extras, sender, message)
+            } else {
+                Log.e(TAG, "ℹ️ Google Messages notification doesn't appear to be an RCS message, ignoring")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error processing Google Messages notification: ${e.message}")
         }
     }
     
@@ -406,14 +571,26 @@ class RcsNotificationListener : NotificationListenerService() {
             // 2. Has message-specific extras, OR 
             // 3. Has conversation ID extras
             
-            val hasText = extras.getCharSequence(Notification.EXTRA_TEXT) != null
-            val hasConversationExtras = extras.containsKey("extra_im_notification_conversation_id")
+            val hasText = extras.getCharSequence(Notification.EXTRA_TEXT) != null ||
+                         extras.getCharSequence(Notification.EXTRA_BIG_TEXT) != null
+            val hasConversationExtras = extras.containsKey("extra_im_notification_conversation_id") ||
+                                       extras.containsKey("android.conversationId")
             val hasMessagingExtras = extras.containsKey("android.messages") ||
                                     extras.containsKey("android.messagingUser") ||
                                     extras.containsKey("android.messagingStyleUser")
             
             if (hasText || hasConversationExtras || hasMessagingExtras) {
                 Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Google Messages with content, treating as RCS")
+                return true
+            }
+            
+            // NEW: Check for remote inputs which typically indicate a message that can be replied to
+            val hasReplyActions = notification.actions?.any { 
+                it?.remoteInputs?.isNotEmpty() == true 
+            } ?: false
+            
+            if (hasReplyActions) {
+                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Message has reply actions, treating as RCS")
                 return true
             }
             
@@ -432,6 +609,16 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - messagingStyleUser: $hasMessagingStyleUser, messagingUser: $hasMessagingUser")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - hiddenConversationTitle: $hasHiddenConversationTitle")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - peopleList: $hasPeopleList, messagingPerson: $hasMessagingPerson, messages: $hasMessages")
+            
+            // NEW: Check if this is a summary notification, which we can ignore
+            val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+            if (isGroupSummary) {
+                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ This appears to be a group summary notification")
+                // Even for summaries, check if they have message content that should be processed
+                if (!hasText && !hasMessages) {
+                    return false
+                }
+            }
             
             // Log all extras for debugging
             extras.keySet().forEach { key ->
@@ -460,11 +647,13 @@ class RcsNotificationListener : NotificationListenerService() {
             }
             
             val hasMarkAsReadAction = actions.any { action -> 
-                action?.title?.toString()?.contains("Mark as read", ignoreCase = true) == true
+                action?.title?.toString()?.contains("Mark as read", ignoreCase = true) == true ||
+                action?.title?.toString()?.contains("read", ignoreCase = true) == true
             }
             
             val hasReplyAction = actions.any { action ->
-                action?.title?.toString()?.contains("Reply", ignoreCase = true) == true
+                action?.title?.toString()?.contains("Reply", ignoreCase = true) == true ||
+                action?.title?.toString()?.contains("respond", ignoreCase = true) == true
             }
             
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Has Mark as read action: $hasMarkAsReadAction")
@@ -476,8 +665,9 @@ class RcsNotificationListener : NotificationListenerService() {
             }
             
             // FALLBACK: For Google Messages, assume it's RCS if it has any notification actions
-            if (actions.isNotEmpty()) {
-                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ FALLBACK: Google Messages with actions, treating as RCS")
+            // that aren't just "dismiss" or standard system actions
+            if (actions.isNotEmpty() && actions.size > 1) {
+                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ FALLBACK: Google Messages with multiple actions, treating as RCS")
                 return true
             }
         }
@@ -504,6 +694,13 @@ class RcsNotificationListener : NotificationListenerService() {
         // If we have remote inputs and it's from a messaging app, it's likely RCS
         if (hasRemoteInputs) {
             Log.e(TAG, "✅ RemoteInputs found, treating as RCS")
+            return true
+        }
+        
+        // NEW: Check if the notification has a Category.MESSAGE or Category.SOCIAL
+        if (notification.category == Notification.CATEGORY_MESSAGE || 
+            notification.category == Notification.CATEGORY_SOCIAL) {
+            Log.e(TAG, "✅ Message or social category found, treating as RCS")
             return true
         }
         
@@ -613,109 +810,134 @@ class RcsNotificationListener : NotificationListenerService() {
         }
     }
     
+    // Add a comprehensive debug method to dump all notification information
     /**
-     * Process a service category notification from Google Messages
-     * These notifications often contain RCS message data but in a different format
+     * Dump complete notification information for debugging
+     * This helps diagnose why some notifications aren't being properly detected
      */
-    private fun processServiceNotification(sbn: StatusBarNotification) {
+    private fun dumpNotificationInfo(sbn: StatusBarNotification) {
         try {
             val notification = sbn.notification
             val extras = notification.extras
             
-            Log.e(TAG, "LOGTAG_RCS_DETAILS: 📨📨📨 SERVICE NOTIFICATION DETAILS 📨📨📨")
+            Log.e(TAG, "📋📋📋 NOTIFICATION DEBUG INFO 📋📋📋")
+            Log.e(TAG, "• Package: ${sbn.packageName}")
+            Log.e(TAG, "• ID: ${sbn.id}")
+            Log.e(TAG, "• Key: ${sbn.key}")
+            Log.e(TAG, "• Tag: ${sbn.tag}")
+            Log.e(TAG, "• Post Time: ${sbn.postTime}")
+            Log.e(TAG, "• Category: ${notification.category}")
+            Log.e(TAG, "• Group Key: ${sbn.groupKey}")
+            Log.e(TAG, "• Flags: ${notification.flags}")
+            Log.e(TAG, "• Is Group Summary: ${(notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0}")
             
             // Log all extras for debugging
+            Log.e(TAG, "• EXTRAS:")
             extras.keySet().forEach { key ->
-                val value = when (val v = extras.get(key)) {
-                    null -> "null"
-                    is CharSequence -> v.toString()
-                    is Bundle -> "Bundle with ${v.size()} items"
-                    is Array<*> -> "Array with ${v.size} items"
-                    else -> v.toString()
-                }
-                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Extra - $key: $value")
-            }
-            
-            // Extract any potential message info
-            val conversationId = extras.getString("extra_im_notification_conversation_id") 
-                              ?: extras.getString("android.conversationId")
-                              ?: sbn.key
-                              
-            // Try to find a sender name from various sources
-            var sender = extras.getString(Notification.EXTRA_TITLE) 
-                      ?: extras.getString(Notification.EXTRA_CONVERSATION_TITLE)
-                      ?: "Unknown Sender"
-                      
-            // Try to extract the actual message content
-            var messageText: String? = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-                                     ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-            
-            // Try to extract from messaging-specific extras
-            if (messageText == null && extras.containsKey("android.messages")) {
                 try {
-                    val messages = extras.getParcelableArray("android.messages")
-                    if (messages != null && messages.isNotEmpty()) {
-                        // Get the last (most recent) message
-                        val lastMessage = messages.last()
-                        
-                        // Try to get sender info if available
-                        try {
-                            val personField = lastMessage.javaClass.getDeclaredField("mPerson")
-                            personField.isAccessible = true
-                            val person = personField.get(lastMessage)
-                            
-                            if (person != null) {
-                                val nameField = person.javaClass.getDeclaredField("mName")
-                                nameField.isAccessible = true
-                                val name = nameField.get(person) as? CharSequence
-                                if (name != null && name.isNotEmpty()) {
-                                    sender = name.toString()
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error extracting sender from message: ${e.message}")
-                        }
-                        
-                        // Extract the message text
-                        try {
-                            val textField = lastMessage.javaClass.getDeclaredField("mText")
-                            textField.isAccessible = true
-                            messageText = (textField.get(lastMessage) as? CharSequence)?.toString()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error extracting text from message: ${e.message}")
-                        }
+                    val value = when (val v = extras.get(key)) {
+                        null -> "null"
+                        is CharSequence -> "\"${v}\""
+                        is Bundle -> "Bundle with ${v.size()} items"
+                        is Array<*> -> "Array with ${v.size} items"
+                        else -> v.toString()
                     }
+                    Log.e(TAG, "  - $key: $value")
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error processing messages array: ${e.message}")
+                    Log.e(TAG, "  - $key: [Error getting value: ${e.message}]")
                 }
             }
             
-            // If we still don't have message text, check for other indicators
-            if (messageText == null) {
-                // Look for any text content in the notification
-                notification.tickerText?.let {
-                    messageText = it.toString()
-                    Log.e(TAG, "🔍 Using ticker text as message: $messageText")
+            // Log all notification actions
+            Log.e(TAG, "• ACTIONS:")
+            notification.actions?.forEachIndexed { index, action ->
+                Log.e(TAG, "  - Action $index: Title=\"${action?.title}\"")
+                action?.remoteInputs?.forEachIndexed { inputIndex, remoteInput ->
+                    Log.e(TAG, "    · RemoteInput $inputIndex: Key=\"${remoteInput.resultKey}\", Label=\"${remoteInput.label}\"")
                 }
-            }
+            } ?: Log.e(TAG, "  - No actions")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error dumping notification info: ${e.message}")
+        }
+    }
+    
+    /**
+     * Check if this notification listener is enabled in system settings
+     * This can help diagnose why notifications aren't being received
+     */
+    private fun checkNotificationListenerEnabled(): Boolean {
+        val context = applicationContext
+        val component = ComponentName(context, RcsNotificationListener::class.java)
+        val packageManager = context.packageManager
+        val packageName = context.packageName
+        
+        try {
+            // Check if our notification listener service is enabled
+            val enabledListeners = Settings.Secure.getString(
+                context.contentResolver,
+                "enabled_notification_listeners"
+            )
             
-            // If we found message text, process it
-            if (!messageText.isNullOrEmpty()) {
-                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Extracted from service notification - Sender: $sender, Message: $messageText")
+            val enabled = enabledListeners?.contains(packageName) == true
+            
+            Log.e(TAG, "🔑🔑🔑 RCS NOTIFICATION LISTENER STATUS 🔑🔑🔑")
+            Log.e(TAG, "   • Package: $packageName")
+            Log.e(TAG, "   • Component: ${component.flattenToString()}")
+            Log.e(TAG, "   • Enabled: $enabled")
+            Log.e(TAG, "   • All enabled listeners: $enabledListeners")
+            
+            if (!enabled) {
+                Log.e(TAG, "❌❌❌ CRITICAL: RcsNotificationListener is NOT enabled in system settings!")
+                Log.e(TAG, "❌❌❌ This is why RCS auto-replies are not working!")
+                Log.e(TAG, "ℹ️ User needs to enable notification access in Settings > Apps > Special access > Notification access")
                 
-                // Process using standard message handling logic
-                processMessageNotification(sbn, notification, extras, sender, messageText)
+                // Add code to request notification access if needed
+            }
+            
+            return enabled
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking notification listener status: ${e.message}")
+            return false
+        }
+    }
+
+    // Add this method to the class for manual testing
+    /**
+     * For testing: Manually process a simulated RCS message
+     * This can be called from LogTestModule to test RCS auto-replies
+     */
+    fun processManualTestMessage(sender: String, message: String): Boolean {
+        try {
+            Log.e(TAG, "🧪🧪🧪 MANUAL TEST: Processing simulated RCS message 🧪🧪🧪")
+            Log.e(TAG, "   • Sender: $sender")
+            Log.e(TAG, "   • Message: $message")
+            
+            // Check if RCS auto-reply is enabled
+            if (!rcsManager.isEnabled()) {
+                Log.e(TAG, "❌ RCS auto-reply is disabled, cannot process test message")
+                return false
+            }
+            
+            // Check if notification listener is enabled
+            if (!checkNotificationListenerEnabled()) {
+                Log.e(TAG, "⚠️ Warning: Processing test message but notification listener appears to be disabled")
+                // Continue anyway for testing
+            }
+            
+            // Process the message with rule engine
+            val replyMessage = rcsManager.processMessage(sender, message)
+            
+            if (replyMessage != null) {
+                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Auto-reply generated: $replyMessage")
+                Log.e(TAG, "✅ Test successful - would send: $replyMessage")
+                return true
             } else {
-                Log.e(TAG, "❌ Could not extract message text from service notification")
-                
-                // Even without message text, try to check if there's a conversation that needs a reply
-                if (conversationId != null) {
-                    Log.e(TAG, "🔍 Found conversation ID but no message text, using placeholder")
-                    processMessageNotification(sbn, notification, extras, sender, "New message notification")
-                }
+                Log.e(TAG, "ℹ️ No auto-reply needed for this test message")
+                return false
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error processing service notification: ${e.message}")
+            Log.e(TAG, "❌ Error processing manual test message: ${e.message}")
+            return false
         }
     }
 } 

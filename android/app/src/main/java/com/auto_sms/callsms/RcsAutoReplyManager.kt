@@ -54,9 +54,19 @@ class RcsAutoReplyManager(private val context: Context) {
             coroutineScope.launch {
                 try {
                     isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                    Log.d(TAG, "MLC LLM initialization: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
+                    Log.e(TAG, "🧠 MLC LLM initialization: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
+                    
+                    // Test the LLM to ensure it's working
+                    if (isMLCInitialized) {
+                        val testPrompt = "Hello, this is a test"
+                        val testContext = "This is a test context to verify LLM is working."
+                        val testResponse = mlcLlmModule?.generateAnswer(testPrompt, testContext, 0.7f)
+                        
+                        Log.e(TAG, "🧠 MLC LLM test response: ${testResponse ?: "null"}")
+                        Log.e(TAG, "✅ MLC LLM is ready for RCS auto-replies")
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to initialize MLC LLM", e)
+                    Log.e(TAG, "❌ Failed to initialize MLC LLM", e)
                 }
             }
         }
@@ -165,7 +175,7 @@ class RcsAutoReplyManager(private val context: Context) {
     }
     
     /**
-     * Check if we should reply to a message based on rules
+     * Process the message with rule engine
      * @return The reply message if should reply, null otherwise
      */
     fun processMessage(sender: String, message: String, timestamp: Long = System.currentTimeMillis()): String? {
@@ -188,6 +198,10 @@ class RcsAutoReplyManager(private val context: Context) {
         // Process rules to see if we should reply
         val rules = getRules()
         Log.e(TAG, "📋 Processing ${rules.length()} rules")
+        
+        // Check if LLM is enabled
+        val isLLMEnabled = isLLMEnabled()
+        Log.e(TAG, "🧠 LLM Enabled: $isLLMEnabled, Initialized: $isMLCInitialized")
         
         // Process rules in order (higher priority first)
         for (i in 0 until rules.length()) {
@@ -215,27 +229,25 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "   • Rule $i matches: $matches")
                 
                 if (matches) {
-                    // If LLM is enabled, use it to generate a response
-                    if (isLLMEnabled() && isMLCInitialized && mlcLlmModule != null) {
+                    // Record that we've replied to this sender
+                    recordReply(sender, message)
+                    
+                    // If LLM is enabled, use it to generate a response regardless of rule type
+                    if (isLLMEnabled && (mlcLlmModule != null)) {
                         Log.e(TAG, "🧠 LLM is enabled, generating intelligent response")
                         
-                        // Record that we've replied to this sender
-                        recordReply(sender, message)
-                        
-                        // Generate LLM response synchronously for RCS
-                        val llmResponse = generateLLMResponseSync(sender, message, ruleMessage)
+                        // Generate LLM response - use rule message as context
+                        val llmResponse = generateLLMResponseWithDocuments(sender, message, ruleMessage)
                         if (llmResponse.isNotEmpty()) {
                             Log.e(TAG, "✅ Using LLM-generated response: $llmResponse")
                             return llmResponse
                         } else {
-                            Log.e(TAG, "⚠️ LLM response was empty, using rule message")
+                            Log.e(TAG, "⚠️ LLM response was empty, using rule message as fallback")
                             return ruleMessage
                         }
                     }
                     
                     Log.e(TAG, "📝 Using rule-based response: $ruleMessage")
-                    // Record that we've replied to this sender
-                    recordReply(sender, message)
                     return ruleMessage
                 }
             } catch (e: Exception) {
@@ -243,20 +255,21 @@ class RcsAutoReplyManager(private val context: Context) {
             }
         }
         
-        // If no specific rule matched but auto-reply is enabled, use default message
+        // If no specific rule matched but auto-reply is enabled, use default message or LLM
         Log.e(TAG, "📋 No specific rules matched, using default behavior")
         recordReply(sender, message)
         
-        // If LLM is enabled, use it to generate a response
-        if (isLLMEnabled() && isMLCInitialized && mlcLlmModule != null) {
+        // If LLM is enabled, always use it to generate a response
+        if (isLLMEnabled && (mlcLlmModule != null)) {
             Log.e(TAG, "🧠 LLM is enabled for default response")
-            val llmResponse = generateLLMResponseSync(sender, message, getDefaultMessage())
+            val defaultMessage = getDefaultMessage()
+            val llmResponse = generateLLMResponseWithDocuments(sender, message, defaultMessage)
             if (llmResponse.isNotEmpty()) {
                 Log.e(TAG, "✅ Using LLM-generated default response: $llmResponse")
                 return llmResponse
             } else {
-                Log.e(TAG, "⚠️ LLM response was empty, using default message")
-                return getDefaultMessage()
+                Log.e(TAG, "⚠️ LLM response was empty, using default message as fallback")
+                return defaultMessage
             }
         }
         
@@ -265,38 +278,10 @@ class RcsAutoReplyManager(private val context: Context) {
     }
     
     /**
-     * Generate a response using the MLC LLM module synchronously
-     */
-    private fun generateLLMResponseSync(sender: String, receivedMessage: String, fallbackMessage: String): String {
-        Log.e(TAG, "🧠🧠🧠 GENERATING LLM RESPONSE SYNC 🧠🧠🧠")
-        Log.e(TAG, "   • Sender: $sender")
-        Log.e(TAG, "   • Received: $receivedMessage")
-        Log.e(TAG, "   • Fallback: $fallbackMessage")
-        
-        return try {
-            // Try to use the same LLM approach as SMS auto-reply
-            val response = generateLLMResponseWithDocuments(sender, receivedMessage)
-            
-            if (response.isNotEmpty()) {
-                Log.e(TAG, "✅ LLM generated response: $response")
-                addLogEntry(sender, receivedMessage, response, true, true)
-                response
-            } else {
-                Log.e(TAG, "⚠️ LLM response was empty, using fallback")
-                addLogEntry(sender, receivedMessage, fallbackMessage, true, false)
-                fallbackMessage
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error generating LLM response: ${e.message}")
-            addLogEntry(sender, receivedMessage, fallbackMessage, true, false)
-            fallbackMessage
-        }
-    }
-    
-    /**
      * Generate LLM response using document context (similar to SMS auto-reply)
+     * This is the primary method for generating LLM responses
      */
-    private fun generateLLMResponseWithDocuments(sender: String, receivedMessage: String): String {
+    private fun generateLLMResponseWithDocuments(sender: String, receivedMessage: String, contextMessage: String = ""): String {
         Log.e(TAG, "📚 Generating LLM response with document context")
         
         try {
@@ -321,14 +306,27 @@ class RcsAutoReplyManager(private val context: Context) {
                         )
                         testLLMMethod.isAccessible = true
                         
-                        // Call the method directly
-                        val result = testLLMMethod.invoke(callSmsModule, receivedMessage)
+                        // Build a better prompt with context from the rule message if available
+                        val enhancedPrompt = if (contextMessage.isNotEmpty() && contextMessage != getDefaultMessage()) {
+                            // If we have a specific rule message, include it for context
+                            "Message from $sender: \"$receivedMessage\". Generate a reply based on this context: \"$contextMessage\""
+                        } else {
+                            // Otherwise just respond to the message directly
+                            "Message from $sender: \"$receivedMessage\". Generate a friendly, helpful reply."
+                        }
+                        
+                        // Call the method directly with enhanced prompt
+                        val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
                         if (result != null) {
                             val rawResponse = result as String
                             val cleanedResponse = cleanLLMResponse(rawResponse)
                             
                             if (cleanedResponse.isNotEmpty()) {
                                 Log.e(TAG, "✅ Successfully got document-based LLM response: $cleanedResponse")
+                                
+                                // Add log entry with LLM flag
+                                addLogEntry(sender, receivedMessage, cleanedResponse, true, true)
+                                
                                 return cleanedResponse
                             } else {
                                 Log.e(TAG, "⚠️ Document-based LLM response was empty after cleaning")
@@ -348,9 +346,16 @@ class RcsAutoReplyManager(private val context: Context) {
             
             // Fallback to MLC LLM if document-based approach fails
             Log.e(TAG, "🔄 Falling back to MLC LLM")
-            val context = "You are responding to a message from $sender. " +
-                          "Keep your response brief and conversational. " +
-                          "The message you received is: \"$receivedMessage\""
+            val context = if (contextMessage.isNotEmpty() && contextMessage != getDefaultMessage()) {
+                "You are responding to a message from $sender. " +
+                "Keep your response brief and conversational. " +
+                "Consider this context for your response: \"$contextMessage\". " +
+                "The message you received is: \"$receivedMessage\""
+            } else {
+                "You are responding to a message from $sender. " +
+                "Keep your response brief and conversational. " +
+                "The message you received is: \"$receivedMessage\""
+            }
             
             val prompt = "Generate a brief, friendly auto-reply to this message."
             
@@ -361,6 +366,10 @@ class RcsAutoReplyManager(private val context: Context) {
             
             if (response.isNotEmpty() && !response.startsWith("AI:")) {
                 Log.e(TAG, "✅ MLC LLM generated response: $response")
+                
+                // Add log entry with LLM flag
+                addLogEntry(sender, receivedMessage, response, true, true)
+                
                 return response
             } else {
                 Log.e(TAG, "⚠️ MLC LLM response was empty or invalid")
