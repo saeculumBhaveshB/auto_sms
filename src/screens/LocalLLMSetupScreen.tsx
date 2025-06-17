@@ -47,6 +47,9 @@ const LocalLLMSetupScreen: React.FC = () => {
     const loadInitialData = async () => {
       setIsLoading(true);
       try {
+        // First delete any default documents
+        await clearDefaultDocuments();
+
         // Check device compatibility
         const compatCheck = await LocalLLMService.checkDeviceCompatibility();
         setIsCompatible(compatCheck.compatible);
@@ -56,9 +59,9 @@ const LocalLLMSetupScreen: React.FC = () => {
         const info = await LocalLLMService.getDeviceInfo();
         setDeviceInfo(info);
 
-        // List documents and enhance with file type info - don't create any if none exist
+        // List documents without creating any samples
         const docs = await LocalLLMService.listDocuments();
-        // Only process documents if they exist, don't create samples
+        // Process documents if they exist
         if (docs.length > 0) {
           const enhancedDocs = await enhanceDocumentsInfo(docs);
           setDocuments(enhancedDocs);
@@ -88,6 +91,40 @@ const LocalLLMSetupScreen: React.FC = () => {
 
     loadInitialData();
   }, []);
+
+  // Helper function to clear default documents
+  const clearDefaultDocuments = async () => {
+    try {
+      // Define a list of default document filenames
+      const defaultDocNames = [
+        "pricing_info.txt",
+        "faq.txt",
+        "sample_document.txt",
+      ];
+
+      // Get list of documents
+      const docs = await LocalLLMService.listDocuments();
+
+      // Delete any default documents
+      let deleteCount = 0;
+      for (const doc of docs) {
+        if (defaultDocNames.includes(doc.name)) {
+          console.log(`Deleting default document: ${doc.name}`);
+          await LocalLLMService.deleteDocument(doc.name);
+          deleteCount++;
+        }
+      }
+
+      if (deleteCount > 0) {
+        console.log(`Deleted ${deleteCount} default documents`);
+      }
+
+      return deleteCount;
+    } catch (error) {
+      console.error("Error clearing default documents:", error);
+      return 0;
+    }
+  };
 
   // Helper function to enhance documents with file type info
   const enhanceDocumentsInfo = async (

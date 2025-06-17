@@ -237,10 +237,10 @@ class AutoReplyService {
 
       // Make sure the model is loaded and documents exist (only if enabling)
       if (enabled) {
-        // Try to create a sample document if requested and needed
+        // Try to create a sample document ONLY if explicitly requested
         if (createSampleDoc) {
           console.log("[AutoReplyService] Creating sample document if needed");
-          await this.createSampleDocumentIfNeeded();
+          await this.createSampleDocumentIfNeeded(createSampleDoc);
         }
 
         // Now try to load the model

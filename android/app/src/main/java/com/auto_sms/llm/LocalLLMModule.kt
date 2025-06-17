@@ -40,6 +40,9 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
         // Log initialization for debugging
         Log.d(TAG, "🔧 LocalLLMModule initialized with reactContext: ${reactContext.hashCode()}")
         
+        // Delete default documents on initialization
+        deleteDefaultDocuments()
+        
         // Initialize MLC LLM in the background
         GlobalScope.launch(Dispatchers.IO) {
             try {
@@ -576,11 +579,12 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
      */
     @ReactMethod
     fun createSampleDocument(createDefault: Boolean, promise: Promise) {
-        Log.d(TAG, "📄 LLM: Creating sample document, createDefault=$createDefault")
+        Log.d(TAG, "📄 LLM: createSampleDocument called with createDefault=$createDefault")
         
         if (!createDefault) {
-            Log.d(TAG, "📝 LLM: Skipping automatic sample document creation")
+            Log.d(TAG, "📝 LLM: Skipping automatic sample document creation (disabled)")
             val result = Arguments.createMap()
+            result.putBoolean("skipped", true)
             promise.resolve(result)
             return
         }
@@ -631,22 +635,16 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
                 """.trimIndent()
             )
             
-            // Also create a PDF file for testing binary detection
-            val binaryFile = File(documentsDir, "sample.pdf")
-            try {
-                val pdfHeader = "%PDF-1.5\n%¥±ë\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n"
-                binaryFile.writeText(pdfHeader)
-                Log.d(TAG, "📄 LLM: Created sample PDF file for binary detection testing")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ LLM: Failed to create sample PDF file: ${e.message}")
-            }
-            
             Log.d(TAG, "📝 LLM: Created sample document at ${sampleFile.absolutePath}, size: ${sampleFile.length()} bytes")
             
             val result = Arguments.createMap()
             result.putString("path", sampleFile.absolutePath)
             result.putDouble("size", sampleFile.length().toDouble())
             result.putString("name", sampleFile.name)
+            
+            // Save preference to indicate we've created a sample document
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putBoolean("createSampleDocuments", true).apply()
             
             promise.resolve(result)
         } catch (e: Exception) {
@@ -822,6 +820,61 @@ class LocalLLMModule(reactContext: ReactApplicationContext) : ReactContextBaseJa
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in forceLoadDefaultModel", e)
             promise.reject("LOAD_ERROR", "Failed to load model: ${e.message}")
+        }
+    }
+
+    /**
+     * Delete any existing default documents
+     */
+    private fun deleteDefaultDocuments() {
+        try {
+            Log.d(TAG, "🔍 Looking for default documents to delete")
+            
+            // Define a list of default document filenames
+            val defaultDocNames = listOf("pricing_info.txt", "faq.txt", "sample_document.txt")
+            
+            // Get the documents directory
+            val documentsDir = File(reactApplicationContext.filesDir, "documents")
+            if (!documentsDir.exists()) {
+                Log.d(TAG, "📁 Documents directory does not exist, no files to delete")
+                return
+            }
+            
+            // Get all files in the directory
+            val files = documentsDir.listFiles()
+            if (files == null || files.isEmpty()) {
+                Log.d(TAG, "📝 No documents found to delete")
+                return
+            }
+            
+            // Count how many files we delete
+            var deletedCount = 0
+            
+            // Check each file and delete it if it's a default document
+            for (file in files) {
+                if (file.isFile && defaultDocNames.contains(file.name)) {
+                    val deleted = file.delete()
+                    if (deleted) {
+                        deletedCount++
+                        Log.d(TAG, "🗑️ Successfully deleted default document: ${file.name}")
+                    } else {
+                        Log.e(TAG, "❌ Failed to delete default document: ${file.name}")
+                    }
+                }
+            }
+            
+            // Log results
+            if (deletedCount > 0) {
+                Log.d(TAG, "🧹 Deleted $deletedCount default document(s)")
+                
+                // Save preference to not create sample docs in the future
+                val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+                sharedPrefs.edit().putBoolean("createSampleDocuments", false).apply()
+            } else {
+                Log.d(TAG, "✅ No default documents found to delete")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error deleting default documents: ${e.message}", e)
         }
     }
 } 

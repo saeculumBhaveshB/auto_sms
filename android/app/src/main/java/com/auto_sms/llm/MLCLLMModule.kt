@@ -35,8 +35,16 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         Log.e(TAG, "🧠 Initializing MLC LLM")
         
         try {
-            // Create test documents for document-based responses
-            createTestDocuments()
+            // Check shared preference to see if we should create test documents
+            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
+            
+            // Only create test documents if explicitly enabled in preferences
+            if (shouldCreateTestDocs) {
+                createTestDocuments()
+            } else {
+                Log.e(TAG, "📝 Skipping creation of test documents (disabled in preferences)")
+            }
             
             // For now, we'll use a simulated model for testing
             Log.e(TAG, "🧠 Using simulated model for document-based responses")
@@ -221,45 +229,51 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
      * Extract content from document files
      */
     private fun extractDocumentContents(files: Array<File>): String {
-        val sb = StringBuilder()
+        val builder = StringBuilder()
         
         try {
-            // Process up to 5 files to avoid making the context too large
-            val filesToProcess = files.take(5)
+            // Check if we should skip file creation
+            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
             
-            filesToProcess.forEachIndexed { index, file ->
-                try {
-                    if (file.isFile && file.canRead()) {
-                        val fileName = file.name
-                        
-                        // Only process text files for now
-                        if (fileName.endsWith(".txt", ignoreCase = true)) {
-                            val content = file.readText()
-                            
-                            // Truncate very long files to avoid context overflow
-                            val truncatedContent = if (content.length > 2000) {
-                                content.substring(0, 2000) + "... (content truncated)"
-                            } else {
-                                content
-                            }
-                            
-                            sb.append("Document ${index + 1}: $fileName\n")
-                            sb.append("Content: $truncatedContent\n\n")
-                            
-                            Log.e(TAG, "📄 Added document: $fileName (${content.length} chars)")
-                        } else {
-                            Log.e(TAG, "⚠️ Skipping non-text file: $fileName")
+            for (file in files) {
+                if (file.isFile) {
+                    Log.e(TAG, "📄 Reading document: ${file.name} (${file.length()} bytes)")
+                    
+                    try {
+                        // If it's a default file and we shouldn't create test docs, skip it
+                        if (!shouldCreateTestDocs && 
+                            (file.name == "pricing_info.txt" || 
+                             file.name == "faq.txt" || 
+                             file.name == "sample_document.txt")) {
+                            Log.e(TAG, "📝 Skipping default document: ${file.name} (disabled in preferences)")
+                            continue
                         }
+                        
+                        // Read all text from the file
+                        val content = file.readText()
+                        val contentSummary = if (content.length > 200) {
+                            content.substring(0, 200) + "... (truncated)"
+                        } else {
+                            content
+                        }
+                        
+                        builder.append("--- Document: ${file.name} ---\n")
+                        builder.append(content)
+                        builder.append("\n\n")
+                        
+                        Log.e(TAG, "📝 Added document: ${file.name}, length: ${content.length} chars, preview: $contentSummary")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error reading document ${file.name}: ${e.message}")
+                        builder.append("--- ERROR: Failed to read document ${file.name} ---\n")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error reading file ${file.name}: ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error processing document files: ${e.message}")
+            Log.e(TAG, "❌ Error extracting document contents: ${e.message}")
         }
         
-        return sb.toString()
+        return builder.toString()
     }
     
     /**
@@ -751,6 +765,15 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
      */
     private fun createTestDocuments() {
         try {
+            // Check shared preference again as a double-check
+            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
+            
+            if (!shouldCreateTestDocs) {
+                Log.e(TAG, "📝 Skipping test document creation (disabled in preferences)")
+                return
+            }
+            
             Log.e(TAG, "📝 Creating test documents for document-based responses")
             
             val documentsDir = File(reactContext.filesDir, "documents")

@@ -354,10 +354,24 @@ class SmsReceiver : BroadcastReceiver() {
     
     /**
      * Create a sample test document if none exist
+     * @param context The application context
+     * @param forceCreate Whether to force creating the sample document regardless of settings
+     * @return The created file or null if creation was skipped or failed
      */
-    private fun createSampleDocument(context: Context): File? {
+    private fun createSampleDocument(context: Context, forceCreate: Boolean = false): File? {
         try {
-            Log.d(TAG, "📄 LLM: Creating sample document for testing")
+            Log.d(TAG, "📄 LLM: Creating sample document for testing, forceCreate=$forceCreate")
+            
+            // Check if sample document creation is disabled (unless forceCreate is true)
+            if (!forceCreate) {
+                val sharedPrefs = context.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+                val createSampleDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
+                
+                if (!createSampleDocs) {
+                    Log.d(TAG, "📄 LLM: Sample document creation is disabled in preferences, skipping")
+                    return null
+                }
+            }
             
             val documentsDir = File(context.filesDir, "documents")
             if (!documentsDir.exists()) {
@@ -424,11 +438,8 @@ class SmsReceiver : BroadcastReceiver() {
                 documentsDir.mkdirs()
                 Log.e(TAG, "📁 INIT LLM - Created documents directory at ${documentsDir.absolutePath}")
                 
-                // Create sample document
-                val sampleFile = createSampleDocument(context)
-                if (sampleFile != null) {
-                    Log.e(TAG, "✅ INIT LLM - Created sample document: ${sampleFile.absolutePath}")
-                }
+                // Don't create sample document automatically anymore
+                Log.e(TAG, "✅ INIT LLM - Documents directory created. Sample documents must be added by the user.")
             } else {
                 Log.e(TAG, "✅ INIT LLM - Documents directory exists at ${documentsDir.absolutePath}")
                 
@@ -605,14 +616,11 @@ class SmsReceiver : BroadcastReceiver() {
             // Fallback to original document handling if enhanced retrieval failed
             Log.e(TAG, "📄 Using standard document context method")
             
-            // Check if we have any documents for context, create sample if needed
+            // Check if we have any documents for context
             val documentsDir = File(context.filesDir, "documents")
             if (!documentsDir.exists() || documentsDir.listFiles()?.isEmpty() != false) {
-                Log.e(TAG, "📄 LLM - No documents found for context, creating sample document")
-                val sampleFile = createSampleDocument(context)
-                if (sampleFile != null) {
-                    Log.e(TAG, "✅ LLM - Created sample document: ${sampleFile.absolutePath}")
-                }
+                Log.e(TAG, "📄 LLM - No documents found for context. User needs to upload documents.")
+                return "I'm sorry, but I don't have enough information to answer that. Please upload some documents through the app settings."
             } else {
                 Log.e(TAG, "✅ LLM - Found existing documents for context")
                 // Log available documents for debugging
@@ -1348,7 +1356,7 @@ class SmsReceiver : BroadcastReceiver() {
     }
     
     /**
-     * Ensure LLM auto-reply is enabled by default for testing
+     * Ensure LLM auto-reply is enabled for testing
      */
     private fun ensureLLMAutoReplyEnabled(context: Context, sharedPrefs: SharedPreferences) {
         val llmAutoReplyEnabled = sharedPrefs.getBoolean(LLM_AUTO_REPLY_ENABLED_KEY, false)
@@ -1373,6 +1381,10 @@ class SmsReceiver : BroadcastReceiver() {
             Log.e(TAG, "📝 SmsReceiver - Setting enhanced document QA to enabled by default for testing")
             sharedPrefs.edit().putBoolean(LLM_ENHANCED_QA_KEY, true).apply()
         }
+        
+        // IMPORTANT: Disable automatic sample document creation by default
+        sharedPrefs.edit().putBoolean("createSampleDocuments", false).apply()
+        Log.e(TAG, "📝 SmsReceiver - Disabled automatic sample document creation")
     }
     
     /**
