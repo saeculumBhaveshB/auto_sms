@@ -959,12 +959,12 @@ class RcsNotificationListener : NotificationListenerService() {
             }
             
             // If all LLM approaches failed, don't send a response
-            Log.e(TAG, "❌❌❌ All LLM approaches failed, using fallback")
-            return "Thanks for your message about \"${extractTopic(message)}\". I'll check and respond to your specific query soon. (ID: ${System.currentTimeMillis() % 10000})"
+            Log.e(TAG, "❌❌❌ All LLM approaches failed, no response will be sent")
+            return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error generating forced dynamic response: ${e.message}")
-            // If there's an error, use a message-specific fallback
-            return "I received your message about \"${extractTopic(message)}\". I'll check and respond to your inquiry soon. (ID: ${System.currentTimeMillis() % 10000})"
+            // Return empty string to prevent sending any message
+            return ""
         }
     }
     

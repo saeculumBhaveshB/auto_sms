@@ -116,20 +116,20 @@ class AutoReplyService {
   async getRcsAutoReplyMessage(): Promise<string> {
     try {
       if (Platform.OS !== "android") {
-        return "Auto-reply will use dynamic, personalized AI responses.";
+        return "";
       }
 
       if (AutoReplyModule?.getRcsAutoReplyMessage) {
         // Use native method if available to get a dynamic sample
         return await AutoReplyModule.getRcsAutoReplyMessage();
       } else {
-        // Fall back to a non-static message that indicates LLM will be used
-        return "This app will generate a personalized response using LLM.";
+        // Return empty string to avoid static messages
+        return "";
       }
     } catch (error) {
       console.error("Error getting RCS auto-reply message:", error);
-      // Never return a static message - instead indicate LLM will be used
-      return "RCS replies will be generated dynamically based on the message content.";
+      // Return empty string to avoid static messages
+      return "";
     }
   }
 
@@ -339,43 +339,13 @@ class AutoReplyService {
         return true;
       }
 
-      // If createDefault is false, don't create a sample document
-      if (!createDefault) {
-        console.log("Skipping sample document creation (disabled)");
-        return false;
-      }
-
-      console.log("Creating sample document for LLM");
-      const content = `# Sample Document for Auto-Reply
-
-## Company Information
-Our company provides excellent customer service 24/7.
-You can reach our support team at support@example.com.
-
-## Product Information
-Our product is a mobile app that helps users with automatic SMS replies.
-
-## FAQ
-Q: When will my order arrive?
-A: Orders typically arrive within 3-5 business days.
-
-Q: How do I contact support?
-A: You can email support@example.com or call us at 555-123-4567.
-
-Q: What's your refund policy?
-A: We offer full refunds within 30 days of purchase.
-
-Q: How does the auto-reply feature work?
-A: When you miss a call, the app sends an automatic SMS. When they reply, our local LLM provides an intelligent response based on your uploaded documents.
-`;
-
-      const result = await LocalLLMService.createSampleDocument(
-        content,
-        createDefault
+      // Never create sample documents automatically
+      console.log(
+        "No documents found, but sample document creation is disabled"
       );
-      return result !== null;
-    } catch (error) {
-      console.error("Error creating sample document:", error);
+      return false;
+    } catch (e) {
+      console.error("Error creating sample document:", e);
       return false;
     }
   }

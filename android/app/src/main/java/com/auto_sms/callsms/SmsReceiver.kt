@@ -36,7 +36,6 @@ class SmsReceiver : BroadcastReceiver() {
     // Auto-reply feature keys
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
     private val MISSED_CALL_NUMBERS_KEY = "missedCallNumbers"
-    private val AUTO_REPLY_MESSAGE = "Thanks for your message. I'll respond to your specific query as soon as possible. (ID: AUTO)"
     
     // Document-based LLM auto-reply keys
     private val LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled"
@@ -251,9 +250,9 @@ class SmsReceiver : BroadcastReceiver() {
                                 continue
                             }
                         } else if (autoReplyEnabled) {
-                            Log.e(TAG, "📝 SmsReceiver - Simple auto-reply to missed call: $AUTO_REPLY_MESSAGE")
+                            Log.e(TAG, "📝 SmsReceiver - Using LLM-based auto-reply for missed call")
                             sendAutoReply(context, phoneNumber)
-                            Log.e(TAG, "📤 SmsReceiver - Simple auto-reply sent")
+                            Log.e(TAG, "📤 SmsReceiver - LLM-based auto-reply sent")
                             try {
                                 abortBroadcast()
                                 Log.e(TAG, "🔒 SmsReceiver - Broadcast aborted to prevent duplicate processing")
@@ -1236,12 +1235,41 @@ class SmsReceiver : BroadcastReceiver() {
     }
     
     /**
-     * Send auto-reply message "Yes I am" to a phone number
+     * Send auto-reply message using MLC LLM with document context
      */
     private fun sendAutoReply(context: Context, phoneNumber: String) {
-        Log.d(TAG, "📤 SmsReceiver - Sending auto-reply to $phoneNumber: $AUTO_REPLY_MESSAGE")
+        Log.d(TAG, "📤 SmsReceiver - Sending LLM-based auto-reply to $phoneNumber")
         
         try {
+            // Generate dynamic response using LLM
+            var responseMessage = ""
+            
+            // Try to get response from LLM
+            try {
+                // Use generateLLMResponse method to create a document-based response
+                responseMessage = generateLLMResponse(context, "Hello")
+                Log.d(TAG, "🧠 Generated document-based response: $responseMessage")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error generating LLM response: ${e.message}")
+            }
+            
+            // If LLM fails, use a dynamic fallback with timestamp ID
+            if (responseMessage.isEmpty()) {
+                try {
+                    // Try again with a simpler prompt
+                    responseMessage = generateLLMResponse(context, "Generate a brief auto-reply message")
+                    Log.d(TAG, "🧠 Generated fallback LLM response: $responseMessage")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error generating fallback LLM response: ${e.message}")
+                }
+                
+                // If still empty, don't send any message
+                if (responseMessage.isEmpty()) {
+                    Log.d(TAG, "⚠️ LLM failed to generate any response, no message will be sent")
+                    return
+                }
+            }
+            
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(SmsManager::class.java)
             } else {
@@ -1260,20 +1288,20 @@ class SmsReceiver : BroadcastReceiver() {
             val sentPI = PendingIntent.getBroadcast(context, 0, sentIntent, pendingIntentFlags)
             
             // Send the message
-            smsManager.sendTextMessage(phoneNumber, null, AUTO_REPLY_MESSAGE, sentPI, null)
+            smsManager.sendTextMessage(phoneNumber, null, responseMessage, sentPI, null)
             
             // Save to history with correct type
             val historyItem = org.json.JSONObject().apply {
                 put("phoneNumber", phoneNumber)
-                put("message", AUTO_REPLY_MESSAGE)
+                put("message", responseMessage)
                 put("status", "SENT")
-                put("type", "AUTO_REPLY") // This is an auto-reply, not LLM
+                put("type", "LLM_AUTO_REPLY") // Mark as LLM-based auto-reply
                 put("timestamp", System.currentTimeMillis())
             }
             
             saveSmsToHistory(context, historyItem)
             
-            Log.d(TAG, "✅ SmsReceiver - Auto-reply sent successfully")
+            Log.d(TAG, "✅ SmsReceiver - LLM-based auto-reply sent successfully")
         } catch (e: Exception) {
             Log.e(TAG, "❌ SmsReceiver - Error sending auto-reply: ${e.message}")
             e.printStackTrace()

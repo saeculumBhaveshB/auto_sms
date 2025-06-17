@@ -29,7 +29,7 @@ class CallLogCheckService : Service() {
     private val checkInterval = 30000L // 30 seconds
     
     // Constants
-    private val DEFAULT_MESSAGE = "Thanks for your call. I'll respond to your message as soon as possible. (ID: AUTO)"
+    private val DEFAULT_MESSAGE = "I missed your call. I'll get back to you as soon as possible."
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
     private val AI_SMS_ENABLED_KEY = "@AutoSMS:AIEnabled"
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"

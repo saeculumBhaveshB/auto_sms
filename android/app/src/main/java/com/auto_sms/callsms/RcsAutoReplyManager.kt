@@ -192,13 +192,21 @@ class RcsAutoReplyManager(private val context: Context) {
                 return reflectionResponse
             }
             
-            // If both approaches fail, don't use a static template
-            Log.e(TAG, "❌ Failed to generate dynamic response - will not send static fallback")
+            // Tertiary approach: Use document-based LLM
+            val documentResponse = generateLLMResponseWithDocuments(sender, messageToUse)
+            if (documentResponse.isNotEmpty()) {
+                Log.e(TAG, "✅ Generated dynamic response with documents: $documentResponse")
+                return documentResponse
+            }
+            
+            // If all approaches fail, return null to prevent sending static messages
+            Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
+            Log.e(TAG, "❌❌❌ No response will be sent to avoid static templates")
             return ""
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error generating dynamic response: ${e.message}")
-            // Don't use static fallback
+            // Return empty string to indicate no response should be sent
             return ""
         }
     }
@@ -466,11 +474,9 @@ class RcsAutoReplyManager(private val context: Context) {
                         Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
                     }
                     
-                    // If all approaches fail, generate a default response using the rule
-                    Log.e(TAG, "⚠️ Dynamic response generation failed, using rule-based fallback")
-                    val fallbackResponse = "I received your message about \"${extractTopic(message)}\". ${ruleMessage} (ID: ${System.currentTimeMillis() % 10000})"
-                    addLogEntry(sender, message, fallbackResponse, true, false)
-                    return fallbackResponse
+                    // If all approaches fail, don't use static templates
+                    Log.e(TAG, "⚠️ Dynamic response generation failed, no rule-based response will be sent")
+                    return null
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error processing rule ${i}: ${e.message}")
@@ -553,11 +559,9 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "❌ Error with reflection approach for default response: ${e.message}")
         }
         
-        // If all approaches fail, provide a default response that references the message
-        Log.e(TAG, "⚠️ All dynamic response approaches failed, using simple fallback")
-        val fallbackResponse = "I received your message about \"${extractTopic(message)}\". I'll get back to you with more information soon. (ID: ${System.currentTimeMillis() % 10000})"
-        addLogEntry(sender, message, fallbackResponse, true, false)
-        return fallbackResponse
+        // If all approaches fail, don't use static fallback
+        Log.e(TAG, "⚠️ Dynamic response generation failed, no response will be sent")
+        return null
     }
     
     /**
@@ -675,8 +679,8 @@ class RcsAutoReplyManager(private val context: Context) {
             
             // All LLM approaches failed, don't use static templates
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
-            Log.e(TAG, "⚠️ Using message-specific fallback instead of empty response")
-            return "Thanks for your message about \"${extractTopic(receivedMessage)}\". I'll check our documentation for information related to your question and get back to you. (ID: ${System.currentTimeMillis() % 10000})"
+            Log.e(TAG, "⚠️ No response will be sent to avoid static templates")
+            return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in generateLLMResponseWithDocuments: ${e.message}")
             return "I received your message about \"${extractTopic(receivedMessage)}\". I'll check the available information and get back to you soon. (ID: ${System.currentTimeMillis() % 10000})"
@@ -1237,22 +1241,13 @@ class RcsAutoReplyManager(private val context: Context) {
                 return response
             }
             
-            // Fallback to reflection approach if MLC LLM fails
-            val reflectionResponse = callReflectionLLM(sender, messageToUse)
-            if (reflectionResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated dynamic response via reflection: $reflectionResponse")
-                return reflectionResponse
-            }
-            
-            // If all dynamic response generation methods fail, provide a guaranteed fallback
-            // This fallback still references the specific message to avoid static templates
-            Log.e(TAG, "⚠️ All dynamic response approaches failed, using message-specific fallback")
-            val fallbackResponse = "I received your message about \"${extractTopic(messageToUse)}\". I'll review it carefully and get back to you with more information. (ID: ${System.currentTimeMillis() % 10000})"
-            return fallbackResponse
+            // If all dynamic response generation methods fail, return empty string
+            Log.e(TAG, "⚠️ All dynamic response approaches failed, no response will be sent")
+            return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error forcing dynamic response: ${e.message}")
-            // Even on error, provide a response that references the message
-            return "I received your message about \"${extractTopic(messageToUse)}\". I'll respond to your inquiry as soon as possible. (ID: ${System.currentTimeMillis() % 10000})"
+            // Return null on error to prevent static messages
+            return ""
         }
     }
     

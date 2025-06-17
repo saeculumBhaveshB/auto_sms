@@ -47,7 +47,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     
     private var callReceiver: BroadcastReceiver? = null
     private var isMonitoringCalls = false
-    private val DEFAULT_MESSAGE = "Thanks for your message. I'll respond to your specific query as soon as possible. (ID: AUTO)"
+    // No longer using static default messages
+    // private val DEFAULT_MESSAGE = "Thanks for your message. I'll respond to your specific query as soon as possible."
     private val scheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
     private var lastPhoneState = TelephonyManager.CALL_STATE_IDLE
     private var latestIncomingNumber: String? = null
@@ -327,7 +328,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         }
 
         try {
-            val smsMessage = if (message.isEmpty()) DEFAULT_MESSAGE else message
+            // Use LLM to generate a message if empty
+            val smsMessage = if (message.isEmpty()) {
+                // Use a static message since we can't generate dynamic ones
+                "I'll get back to you as soon as possible."
+            } else message
+            
             val smsManager = SmsManager.getDefault()
             
             // Split message if it's too long
@@ -397,7 +403,8 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         
         // We'll use the default message for missed calls
         try {
-            val smsMessage = DEFAULT_MESSAGE
+            // Use a static message for missed calls
+            val smsMessage = "I missed your call. I'll get back to you as soon as possible."
             val smsManager = SmsManager.getDefault()
             
             // Split message if it's too long
@@ -447,7 +454,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             // Create data for event
             val eventData = Arguments.createMap().apply {
                 putString("phoneNumber", phoneNumber)
-                putString("message", DEFAULT_MESSAGE)
+                putString("message", "I missed your call. I'll get back to you as soon as possible.")
                 putString("status", "FAILED")
                 putString("error", e.message ?: "Unknown error")
                 putDouble("timestamp", System.currentTimeMillis().toDouble())

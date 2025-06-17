@@ -21,7 +21,7 @@ class CallReceiver : BroadcastReceiver() {
     private var lastPhoneState = TelephonyManager.CALL_STATE_IDLE
     private var latestIncomingNumber: String? = null
     private var callStart: Long = 0L
-    private val DEFAULT_MESSAGE = "Thanks for your call. I'll respond to your message as soon as possible. (ID: AUTO)"
+    private val DEFAULT_MESSAGE = "I missed your call. I'll get back to you as soon as possible."
     
     // Constants for AsyncStorage keys
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
