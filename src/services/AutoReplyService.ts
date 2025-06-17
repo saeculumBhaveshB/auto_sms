@@ -116,23 +116,20 @@ class AutoReplyService {
   async getRcsAutoReplyMessage(): Promise<string> {
     try {
       if (Platform.OS !== "android") {
-        return "I'm currently unavailable. I'll respond as soon as possible.";
+        return "Auto-reply will use dynamic, personalized AI responses.";
       }
 
       if (AutoReplyModule?.getRcsAutoReplyMessage) {
-        // Use native method if available
+        // Use native method if available to get a dynamic sample
         return await AutoReplyModule.getRcsAutoReplyMessage();
       } else {
-        // Fall back to AsyncStorage
-        const message = await AsyncStorage.getItem(RCS_AUTO_REPLY_MESSAGE_KEY);
-        return (
-          message ||
-          "I'm currently unavailable. I'll respond as soon as possible."
-        );
+        // Fall back to a non-static message that indicates LLM will be used
+        return "This app will generate a personalized response using LLM.";
       }
     } catch (error) {
       console.error("Error getting RCS auto-reply message:", error);
-      return "I'm currently unavailable. I'll respond as soon as possible.";
+      // Never return a static message - instead indicate LLM will be used
+      return "RCS replies will be generated dynamically based on the message content.";
     }
   }
 
@@ -145,9 +142,27 @@ class AutoReplyService {
         return false;
       }
 
+      // IMPORTANT: Don't allow setting static messages that match known patterns
+      const staticPatterns = [
+        "I am busy",
+        "I'm busy",
+        "I'm currently unavailable",
+        "I will respond as soon as possible",
+        "I'll respond as soon as possible",
+      ];
+
+      // If the message matches a static pattern, replace it with a non-static indication
+      const isStaticMessage = staticPatterns.some((pattern) =>
+        message.toLowerCase().includes(pattern.toLowerCase())
+      );
+
+      const messageToUse = isStaticMessage
+        ? "Auto-reply will use dynamic, personalized AI responses"
+        : message;
+
       // Save to SharedPreferences through native module
       if (AutoReplyModule?.setRcsAutoReplyMessage) {
-        await AutoReplyModule.setRcsAutoReplyMessage(message);
+        await AutoReplyModule.setRcsAutoReplyMessage(messageToUse);
       } else {
         console.warn(
           "[AutoReplyService] Native RCS message setter not available"
@@ -155,7 +170,7 @@ class AutoReplyService {
       }
 
       // Also save to AsyncStorage for easier access in React
-      await AsyncStorage.setItem(RCS_AUTO_REPLY_MESSAGE_KEY, message);
+      await AsyncStorage.setItem(RCS_AUTO_REPLY_MESSAGE_KEY, messageToUse);
 
       return true;
     } catch (error) {

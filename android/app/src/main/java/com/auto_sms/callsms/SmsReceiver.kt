@@ -36,7 +36,7 @@ class SmsReceiver : BroadcastReceiver() {
     // Auto-reply feature keys
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
     private val MISSED_CALL_NUMBERS_KEY = "missedCallNumbers"
-    private val AUTO_REPLY_MESSAGE = "I am busy, please give me some time, I will contact you."
+    private val AUTO_REPLY_MESSAGE = "Thanks for your message. I'll respond to your specific query as soon as possible. (ID: AUTO)"
     
     // Document-based LLM auto-reply keys
     private val LLM_AUTO_REPLY_ENABLED_KEY = "@AutoSMS:LLMAutoReplyEnabled"

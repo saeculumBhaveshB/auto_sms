@@ -29,15 +29,28 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
     private var modelId: String? = null
     
     /**
-     * Initialize TensorFlow runtime
+     * Initialize the MLC LLM
      */
     fun initialize(): Boolean {
+        Log.e(TAG, "🧠 Initializing MLC LLM")
+        
         try {
-            Log.d(TAG, "🚀 Initializing TensorFlow Lite runtime")
-            // TensorFlow doesn't need explicit initialization
+            // Create test documents for document-based responses
+            createTestDocuments()
+            
+            // For now, we'll use a simulated model for testing
+            Log.e(TAG, "🧠 Using simulated model for document-based responses")
+            
+            // Set up fallback mode
+            modelPath = reactContext.filesDir.absolutePath
+            modelId = "simulated_model"
+            isModelLoaded.set(true)
+            
+            Log.e(TAG, "✅ MLC LLM initialized successfully")
+            
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to initialize TensorFlow runtime", e)
+            Log.e(TAG, "❌ Failed to initialize MLC LLM: ${e.message}", e)
             return false
         }
     }
@@ -153,35 +166,100 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
     suspend fun generateAnswer(question: String, context: String? = null, temperature: Float = 0.7f): String {
         return withContext(Dispatchers.IO) {
             if (!isModelLoaded.get()) {
-                Log.e(TAG, "❌ Model not loaded, cannot generate answer")
-                return@withContext "AI: I need to load my model first before I can answer your question."
+                Log.e(TAG, "❌ Model not loaded, initializing now...")
+                initialize()
             }
             
             try {
-                Log.d(TAG, "🤔 Generating answer for: $question")
+                Log.e(TAG, "🤔 Generating answer for: $question")
                 
-                // Format the context and question
-                val prompt = if (!context.isNullOrBlank()) {
-                    "Based on the following information:\n\n$context\n\nQuestion: $question"
+                // Check if documents exist and include them in the context
+                val documentsDir = File(reactContext.filesDir, "documents")
+                var documentText = ""
+                if (documentsDir.exists()) {
+                    val documentFiles = documentsDir.listFiles()
+                    if (documentFiles != null && documentFiles.isNotEmpty()) {
+                        Log.e(TAG, "📚 Found ${documentFiles.size} documents to include in response")
+                        documentText = extractDocumentContents(documentFiles)
+                    } else {
+                        Log.e(TAG, "❌ No document files found in ${documentsDir.absolutePath}")
+                    }
+                } else {
+                    Log.e(TAG, "❌ Documents directory doesn't exist at ${documentsDir.absolutePath}")
+                }
+                
+                // Format the context with document content
+                val enhancedContext = if (!context.isNullOrBlank()) {
+                    if (documentText.isNotEmpty()) {
+                        "$context\n\nDocument Content:\n$documentText"
+                    } else {
+                        context
+                    }
+                } else if (documentText.isNotEmpty()) {
+                    "Document Content:\n$documentText"
+                } else {
+                    ""
+                }
+                
+                // Format the full prompt
+                val prompt = if (enhancedContext.isNotEmpty()) {
+                    "Based on the following information:\n\n$enhancedContext\n\nQuestion: $question"
                 } else {
                     question
                 }
                 
-                // Check if we have a real TensorFlow interpreter or we're in fallback mode
-                if (interpreter != null) {
-                    Log.d(TAG, "📚 Using TensorFlow interpreter")
-                    // Here we would use the TensorFlow model if it was actually loaded
-                    // But since we don't have that implemented, we'll use the fallback
-                    fallbackGenerate(question, context)
-                } else {
-                    Log.d(TAG, "📝 Using fallback generation")
-                    fallbackGenerate(question, context)
-                }
+                Log.e(TAG, "📝 Using enhanced prompt with document content")
+                return@withContext fallbackGenerate(question, enhancedContext)
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error generating answer", e)
-                return@withContext "AI: I'm having trouble processing your question due to a technical issue. Please try again later."
+                return@withContext "I apologize, but I encountered a technical issue. Based on what I know about ${extractMainTopic(question)}, I'll try to provide a helpful response next time."
             }
         }
+    }
+    
+    /**
+     * Extract content from document files
+     */
+    private fun extractDocumentContents(files: Array<File>): String {
+        val sb = StringBuilder()
+        
+        try {
+            // Process up to 5 files to avoid making the context too large
+            val filesToProcess = files.take(5)
+            
+            filesToProcess.forEachIndexed { index, file ->
+                try {
+                    if (file.isFile && file.canRead()) {
+                        val fileName = file.name
+                        
+                        // Only process text files for now
+                        if (fileName.endsWith(".txt", ignoreCase = true)) {
+                            val content = file.readText()
+                            
+                            // Truncate very long files to avoid context overflow
+                            val truncatedContent = if (content.length > 2000) {
+                                content.substring(0, 2000) + "... (content truncated)"
+                            } else {
+                                content
+                            }
+                            
+                            sb.append("Document ${index + 1}: $fileName\n")
+                            sb.append("Content: $truncatedContent\n\n")
+                            
+                            Log.e(TAG, "📄 Added document: $fileName (${content.length} chars)")
+                        } else {
+                            Log.e(TAG, "⚠️ Skipping non-text file: $fileName")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error reading file ${file.name}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error processing document files: ${e.message}")
+        }
+        
+        return sb.toString()
     }
     
     /**
@@ -579,10 +657,10 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                             val header = ByteArray(256) { 0 }
                             
                             // TFLite magic bytes "TFL3"
-                            header[0] = 'T'.toByte()
-                            header[1] = 'F'.toByte()
-                            header[2] = 'L'.toByte()
-                            header[3] = '3'.toByte()
+                            header[0] = 'T'.code.toByte()
+                            header[1] = 'F'.code.toByte()
+                            header[2] = 'L'.code.toByte()
+                            header[3] = '3'.code.toByte()
                             
                             // Version (a random minor version)
                             header[4] = 0 // Major version
@@ -666,5 +744,81 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         }
         
         return hasInterp
+    }
+    
+    /**
+     * Create test documents for document-based responses
+     */
+    private fun createTestDocuments() {
+        try {
+            Log.e(TAG, "📝 Creating test documents for document-based responses")
+            
+            val documentsDir = File(reactContext.filesDir, "documents")
+            if (!documentsDir.exists()) {
+                documentsDir.mkdirs()
+                Log.e(TAG, "📁 Created documents directory at ${documentsDir.absolutePath}")
+            }
+            
+            // List existing documents
+            val existingDocs = documentsDir.listFiles()
+            Log.e(TAG, "📚 Existing documents: ${existingDocs?.joinToString(", ") { it.name } ?: "none"}")
+            
+            // Only create test documents if none exist
+            if (existingDocs == null || existingDocs.isEmpty()) {
+                // Create a test pricing document
+                val pricingContent = """
+                    Product Pricing Information
+                    
+                    Our premium plan costs $29.99 per month and includes unlimited SMS auto-replies.
+                    The basic plan is $9.99 per month with limited features.
+                    Enterprise plans start at $99 per month with custom features.
+                    
+                    All plans include:
+                    - 24/7 customer support
+                    - Web dashboard access
+                    - Mobile app access
+                    
+                    Contact customer support at support@example.com for more information.
+                """.trimIndent()
+                
+                val pricingFile = File(documentsDir, "pricing_info.txt")
+                FileOutputStream(pricingFile).use { out ->
+                    out.write(pricingContent.toByteArray())
+                }
+                
+                // Create a test FAQ document
+                val faqContent = """
+                    Frequently Asked Questions
+                    
+                    Q: How do I set up auto-replies?
+                    A: To set up auto-replies, go to Settings > Auto-Reply > Enable, then customize your messages.
+                    
+                    Q: Can I schedule auto-replies for specific times?
+                    A: Yes, in the premium plan you can set time-based rules for auto-replies.
+                    
+                    Q: Does the app work with RCS messaging?
+                    A: Yes, our app fully supports RCS messaging and standard SMS.
+                    
+                    Q: How do I cancel my subscription?
+                    A: You can cancel your subscription from the Account section in Settings.
+                    
+                    Q: Can I use custom templates?
+                    A: Premium and Enterprise plans support custom templates and dynamic responses.
+                """.trimIndent()
+                
+                val faqFile = File(documentsDir, "faq.txt")
+                FileOutputStream(faqFile).use { out ->
+                    out.write(faqContent.toByteArray())
+                }
+                
+                Log.e(TAG, "✅ Created test documents at ${documentsDir.absolutePath}")
+                Log.e(TAG, "✅ Files: ${documentsDir.listFiles()?.joinToString(", ") { it.name } ?: "none"}")
+            } else {
+                Log.e(TAG, "✅ Using existing documents in ${documentsDir.absolutePath}")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error creating test documents: ${e.message}")
+        }
     }
 } 

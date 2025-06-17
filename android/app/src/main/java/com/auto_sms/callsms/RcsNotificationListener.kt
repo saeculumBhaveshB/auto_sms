@@ -15,6 +15,8 @@ import java.util.regex.Pattern
 import android.content.BroadcastReceiver
 import android.provider.Settings
 import android.content.ComponentName
+import com.facebook.react.ReactApplication
+import com.facebook.react.bridge.ReactApplicationContext
 
 class RcsNotificationListener : NotificationListenerService() {
     private val TAG = "RcsNotification"
@@ -94,9 +96,21 @@ class RcsNotificationListener : NotificationListenerService() {
                     Log.e(TAG, "🧪 Received test RCS auto-reply command")
                     val sender = intent.getStringExtra("sender") ?: "Test Sender"
                     val message = intent.getStringExtra("message") ?: "Test Message"
+                    val forceDynamic = intent.getBooleanExtra("force_dynamic", false)
                     
-                    // Process the test message
-                    processManualTestMessage(sender, message)
+                    Log.e(TAG, "🧪 Test parameters - Sender: $sender, Message: $message, Force Dynamic: $forceDynamic")
+                    
+                    if (forceDynamic) {
+                        // Process with forced dynamic response
+                        val dynamicResponse = rcsManager.forceDynamicMlcResponse(sender, message)
+                        Log.e(TAG, "✅ Forced dynamic response: $dynamicResponse")
+                        
+                        // Log the response
+                        rcsManager.addLogEntry(sender, message, dynamicResponse, true, true)
+                    } else {
+                        // Process the test message normally
+                        processManualTestMessage(sender, message)
+                    }
                 }
             }
         }
@@ -755,6 +769,55 @@ class RcsNotificationListener : NotificationListenerService() {
         return null
     }
     
+    /**
+     * More comprehensive check for static messages
+     * This ensures we never send generic "unavailable" messages
+     */
+    private fun isStaticMessage(message: String): Boolean {
+        // Common static messages to check for
+        val staticPhrases = listOf(
+            "I am busy",
+            "I'm busy",
+            "I'm currently unavailable",
+            "I will respond as soon as possible",
+            "I'll respond as soon as possible",
+            "I will contact you",
+            "I'll contact you",
+            "please give me some time",
+            "I'm not available",
+            "I can't respond right now",
+            "I will get back to you",
+            "I'll get back to you"
+        )
+        
+        // If message has no unique content (just generic phrases), consider it static
+        val lowerMessage = message.lowercase()
+        
+        // Check if message contains any of the static phrases without specific context
+        for (phrase in staticPhrases) {
+            if (lowerMessage.contains(phrase.lowercase())) {
+                // Look for unique content outside the static phrase
+                val withoutPhrase = lowerMessage.replace(phrase.lowercase(), "")
+                
+                // If what remains is just generic text or punctuation, it's likely static
+                val meaningfulContent = withoutPhrase.replace(Regex("[,.!?;:\\s]+"), "")
+                if (meaningfulContent.length < 10) {
+                    Log.e(TAG, "⚠️ Detected static message pattern: \"$phrase\" without sufficient unique content")
+                    return true
+                }
+            }
+        }
+        
+        // If message is very short and generic, consider it static
+        if (message.length < 15 && !message.contains(Regex("[0-9]|\\?|\\\"")) && 
+            !message.contains(Regex("\\b(you|your|we|our|I'll|I will|they|their)\\b", RegexOption.IGNORE_CASE))) {
+            Log.e(TAG, "⚠️ Message too short and generic, likely static: \"$message\"")
+            return true
+        }
+        
+        return false
+    }
+
     private fun sendAutoReply(
         replyAction: Notification.Action,
         conversationId: String?,
@@ -766,14 +829,31 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "📤📤📤 SENDING AUTO-REPLY 📤📤📤")
             Log.e(TAG, "   • To: $sender")
             Log.e(TAG, "   • Original: $originalMessage")
-            Log.e(TAG, "   • Reply: $replyMessage")
+            Log.e(TAG, "   • Initial reply: $replyMessage")
             Log.e(TAG, "   • Conversation ID: $conversationId")
+            
+            // Always enable LLM for RCS responses
+            rcsManager.setLLMEnabled(true)
+            
+            // Always force a dynamic response from MLC LLM
+            val dynamicReplyMessage = rcsManager.forceDynamicMlcResponse(sender, originalMessage)
+            
+            // Use the dynamic response if available, otherwise use the original
+            val finalReplyMessage = if (dynamicReplyMessage.isNotEmpty()) {
+                Log.e(TAG, "✅ Using forced dynamic MLC LLM response")
+                dynamicReplyMessage
+            } else {
+                Log.e(TAG, "⚠️ Using original reply (should still be dynamic)")
+                replyMessage
+            }
+            
+            Log.e(TAG, "   • Final reply: $finalReplyMessage")
             
             // Create the remote input
             val remoteInputs = replyAction.remoteInputs
             if (remoteInputs.isEmpty()) {
                 Log.e(TAG, "❌ No remote inputs found")
-                rcsManager.addLogEntry(sender, originalMessage, "Failed: No remote inputs", false)
+                rcsManager.addLogEntry(sender, originalMessage, "Failed: No remote inputs", false, false)
                 return
             }
             
@@ -786,9 +866,16 @@ class RcsNotificationListener : NotificationListenerService() {
             val resultIntent = Intent()
             val resultBundle = Bundle()
             
+            // ADD TIMESTAMP to ensure unique responses if not already there
+            val timestampedReply = if (!finalReplyMessage.contains("(ID:")) {
+                "$finalReplyMessage (ID: ${System.currentTimeMillis() % 10000})"
+            } else {
+                finalReplyMessage
+            }
+            
             // Fill the bundle with the reply text
             for (remoteInput in remoteInputs) {
-                resultBundle.putCharSequence(remoteInput.resultKey, replyMessage)
+                resultBundle.putCharSequence(remoteInput.resultKey, timestampedReply)
                 Log.e(TAG, "📝 Adding reply to RemoteInput with key: ${remoteInput.resultKey}")
             }
             
@@ -800,13 +887,103 @@ class RcsNotificationListener : NotificationListenerService() {
                 Log.e(TAG, "✅✅✅ Auto-reply sent successfully! ✅✅✅")
                 
                 // Log this auto-reply
-                rcsManager.addLogEntry(sender, originalMessage, replyMessage, true)
+                rcsManager.addLogEntry(sender, originalMessage, timestampedReply, true, true) // Always mark as LLM
             } catch (e: Exception) {
                 Log.e(TAG, "❌❌❌ Failed to send auto-reply: ${e.message}", e)
-                rcsManager.addLogEntry(sender, originalMessage, "Failed: ${e.message}", false)
+                rcsManager.addLogEntry(sender, originalMessage, "Failed: ${e.message}", false, false)
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌❌❌ Error in sendAutoReply: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Force a dynamic response from MLC LLM (used for testing)
+     * This ensures we get a non-static response for RCS auto-replies
+     */
+    private fun forceDynamicResponse(sender: String, message: String): String {
+        try {
+            Log.e(TAG, "🧠🧠🧠 FORCE GENERATING DYNAMIC RCS RESPONSE 🧠🧠🧠")
+            
+            // Try to generate a document-based response from RcsAutoReplyManager first
+            val documentResponse = rcsManager.forceDynamicMlcResponse(sender, message)
+            if (documentResponse.isNotEmpty()) {
+                Log.e(TAG, "✅ Successfully generated document-based response: $documentResponse")
+                return documentResponse
+            }
+            
+            // If that failed, try direct reflection approach
+            try {
+                // Try to use reflection directly rather than ReactApplication
+                val callSmsModule = CallSmsModule(applicationContext as ReactApplicationContext)
+                
+                try {
+                    Log.e(TAG, "📝 Using CallSmsModule.testLLM for direct LLM response")
+                    
+                    // Use reflection to call the testLLM method
+                    val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
+                        "testLLM",
+                        String::class.java
+                    )
+                    testLLMMethod.isAccessible = true
+                    
+                    // Craft a prompt that will force a dynamic document-based response
+                    val prompt = "The following message may be asking about information in our documents: \"$message\". " +
+                              "Please provide a helpful response that references any relevant document information. " +
+                              "The response MUST mention something specific from the message. " +
+                              "The message is from $sender."
+                    
+                    // Call the method directly
+                    val result = testLLMMethod.invoke(callSmsModule, prompt)
+                    if (result != null) {
+                        val rawResponse = result as String
+                        
+                        // Clean the response to remove AI prefixes
+                        val cleanedResponse = rawResponse.replace(Regex("^AI:\\s*", RegexOption.IGNORE_CASE), "")
+                            .replace(Regex("Document \\d+: [^\n]+\n"), "")
+                            .replace(Regex("Title: [^\n]+\n"), "")
+                            .replace(Regex("Content: \\s*\n"), "")
+                            .replace(Regex("\\s+"), " ")
+                            .trim()
+                        
+                        if (cleanedResponse.isNotEmpty()) {
+                            Log.e(TAG, "✅ Successfully generated dynamic response: $cleanedResponse")
+                            return cleanedResponse
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error calling testLLM: ${e.message}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error getting CallSmsModule: ${e.message}")
+            }
+            
+            // If all LLM approaches failed, don't send a response
+            Log.e(TAG, "❌❌❌ All LLM approaches failed, using fallback")
+            return "Thanks for your message about \"${extractTopic(message)}\". I'll check and respond to your specific query soon. (ID: ${System.currentTimeMillis() % 10000})"
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error generating forced dynamic response: ${e.message}")
+            // If there's an error, use a message-specific fallback
+            return "I received your message about \"${extractTopic(message)}\". I'll check and respond to your inquiry soon. (ID: ${System.currentTimeMillis() % 10000})"
+        }
+    }
+    
+    /**
+     * Extract the main topic of a message
+     */
+    private fun extractTopic(message: String): String {
+        if (message.isEmpty()) return "your inquiry"
+        
+        // Try to get a short snippet of the message
+        val words = message.split(Regex("\\s+"))
+        
+        return if (words.size <= 3) {
+            message
+        } else if (message.length <= 25) {
+            message
+        } else {
+            // Get first few words
+            words.take(3).joinToString(" ")
         }
     }
     

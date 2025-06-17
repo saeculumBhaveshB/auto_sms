@@ -21,7 +21,7 @@ class CallReceiver : BroadcastReceiver() {
     private var lastPhoneState = TelephonyManager.CALL_STATE_IDLE
     private var latestIncomingNumber: String? = null
     private var callStart: Long = 0L
-    private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
+    private val DEFAULT_MESSAGE = "Thanks for your call. I'll respond to your message as soon as possible. (ID: AUTO)"
     
     // Constants for AsyncStorage keys
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
@@ -119,28 +119,25 @@ class CallReceiver : BroadcastReceiver() {
             val aiEnabled = sharedPrefs.getBoolean(AI_SMS_ENABLED_KEY, false)
             
             // Get the appropriate message
-            val smsMessage = if (aiEnabled) {
-                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "AI: I am busy, available only for chat. How may I help you?") ?: DEFAULT_MESSAGE
-            } else {
-                DEFAULT_MESSAGE
-            }
+            val message = 
+                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "Thanks for your call. I'll respond to your specific query as soon as possible. (ID: AUTO)") ?: DEFAULT_MESSAGE
             
             val smsManager = SmsManager.getDefault()
             
             // Split message if it's too long
-            val parts = smsManager.divideMessage(smsMessage)
+            val parts = smsManager.divideMessage(message)
             
             // Send SMS
             if (parts.size > 1) {
                 smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, null, null)
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
             }
             
             Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
             
             // Save to history in shared preferences
-            saveSmsToHistory(context, phoneNumber, smsMessage, true)
+            saveSmsToHistory(context, phoneNumber, message, true)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)

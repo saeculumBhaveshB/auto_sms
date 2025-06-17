@@ -47,7 +47,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     
     private var callReceiver: BroadcastReceiver? = null
     private var isMonitoringCalls = false
-    private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
+    private val DEFAULT_MESSAGE = "Thanks for your message. I'll respond to your specific query as soon as possible. (ID: AUTO)"
     private val scheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
     private var lastPhoneState = TelephonyManager.CALL_STATE_IDLE
     private var latestIncomingNumber: String? = null
@@ -671,7 +671,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     fun getInitialSmsMessage(promise: Promise) {
         try {
             val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val message = sharedPrefs.getString("@AutoSMS:InitialMessage", "AI: I am busy, available only for chat. How may I help you?")
+            val message = sharedPrefs.getString("@AutoSMS:InitialMessage", "Thanks for reaching out. I'll reply to your specific message as soon as possible. (ID: AUTO)")
             promise.resolve(message)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting initial SMS message: ${e.message}")

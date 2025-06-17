@@ -1,0 +1,12 @@
+Product Pricing Information
+
+Our premium plan costs .99 per month and includes unlimited SMS auto-replies.
+The basic plan is .99 per month with limited features.
+Enterprise plans start at  per month with custom features.
+
+All plans include:
+- 24/7 customer support
+- Web dashboard access
+- Mobile app access
+
+Contact customer support at support@example.com for more information.

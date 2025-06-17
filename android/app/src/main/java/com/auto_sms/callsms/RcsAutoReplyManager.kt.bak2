@@ -322,7 +322,7 @@ class RcsAutoReplyManager(private val context: Context) {
     
     /**
      * Process the message with rule engine
-     * @return The reply message if should reply, null only if disabled or rate limited
+     * @return The reply message if should reply, null otherwise
      */
     fun processMessage(sender: String, message: String, timestamp: Long = System.currentTimeMillis()): String? {
         Log.e(TAG, "🧠🧠🧠 RCS PROCESSING MESSAGE 🧠🧠🧠")
@@ -339,19 +339,6 @@ class RcsAutoReplyManager(private val context: Context) {
         if (hasRepliedRecently(sender, message)) {
             Log.e(TAG, "⚠️ Already replied to $sender recently, skipping")
             return null
-        }
-        
-        // Record that we'll be replying to this sender
-        recordReply(sender, message)
-        
-        // First, attempt to generate a document-based response (highest priority)
-        // This treats the message as a potential question about documents
-        Log.e(TAG, "📚 Checking for document-based response first")
-        val documentResponse = generateLLMResponseWithDocuments(sender, message)
-        if (documentResponse.isNotEmpty()) {
-            Log.e(TAG, "✅ Generated document-based response: $documentResponse")
-            addLogEntry(sender, message, documentResponse, true, true)
-            return documentResponse
         }
         
         // Process rules to see if we should reply
@@ -387,6 +374,9 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "   • Rule $i matches: $matches")
                 
                 if (matches) {
+                    // Record that we've replied to this sender
+                    recordReply(sender, message)
+                    
                     // ALWAYS use the same document-based LLM approach as SmsReceiver
                     Log.e(TAG, "🧠 Generating LLM response with rule context")
                     
@@ -404,12 +394,11 @@ class RcsAutoReplyManager(private val context: Context) {
                             }
                         }
                         
-                        // Use rule context to augment document knowledge
-                        val prompt = "Generate a document-informed reply to this message."
-                        val llmContext = "You are responding to a message from $sender who asked: \"$message\". " +
+                        val prompt = "Generate a brief, friendly auto-reply to this message."
+                        val llmContext = "You are responding to a message from $sender. " +
                                         "Keep your response brief and conversational. " +
                                         "Consider this context for your response: \"$ruleMessage\". " +
-                                        "If their message seems to be asking for information, try to provide specific details from available documents."
+                                        "The message you received is: \"$message\""
                         
                         val response = runBlocking { 
                             mlcLlmModule?.generateAnswer(prompt, llmContext, 0.7f)
@@ -442,10 +431,8 @@ class RcsAutoReplyManager(private val context: Context) {
                                 )
                                 testLLMMethod.isAccessible = true
                                 
-                                // Build a prompt that combines rule context with document search
-                                val enhancedPrompt = "The following message may be asking about information in our documents: \"$message\". " +
-                                                   "Consider this additional context: \"$ruleMessage\". " +
-                                                   "Please provide a helpful response that references relevant document information."
+                                // Build a better prompt with context from the rule message
+                                val enhancedPrompt = "Message from $sender: \"$message\". Generate a reply based on this context: \"$ruleMessage\""
                                 
                                 // Call the method directly
                                 val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
@@ -455,7 +442,7 @@ class RcsAutoReplyManager(private val context: Context) {
                                     val cleanedResponse = cleanLLMResponse(rawResponse)
                                     
                                     if (cleanedResponse.isNotEmpty()) {
-                                        Log.e(TAG, "✅ Generated document-based response via reflection: $cleanedResponse")
+                                        Log.e(TAG, "✅ Generated dynamic response via reflection: $cleanedResponse")
                                         addLogEntry(sender, message, cleanedResponse, true, true)
                                         return cleanedResponse
                                     }
@@ -466,10 +453,12 @@ class RcsAutoReplyManager(private val context: Context) {
                         Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
                     }
                     
-                    // If all approaches fail, generate a default response using the rule
-                    Log.e(TAG, "⚠️ Dynamic response generation failed, using rule-based fallback")
-                    val fallbackResponse = "I received your message about \"${extractTopic(message)}\". ${ruleMessage} (ID: ${System.currentTimeMillis() % 10000})"
-                    addLogEntry(sender, message, fallbackResponse, true, false)
+                    // Last resort - generate a unique dynamic response
+                    val uniqueId = System.currentTimeMillis() % 10000
+                    val contextSnippet = message.take(15).replace(Regex("[,.!?;:]"), "")
+                    val fallbackResponse = "I'll check your message about \"$contextSnippet...\" and respond when available. (ID: $uniqueId)"
+                    Log.e(TAG, "⚠️ Using fallback as last resort: $fallbackResponse")
+                    addLogEntry(sender, message, fallbackResponse, true, true)
                     return fallbackResponse
                 }
             } catch (e: Exception) {
@@ -478,7 +467,8 @@ class RcsAutoReplyManager(private val context: Context) {
         }
         
         // If no specific rule matched but auto-reply is enabled, use dynamic message
-        Log.e(TAG, "📋 No specific rules matched, using default dynamic response")
+        Log.e(TAG, "📋 No specific rules matched, using dynamic response")
+        recordReply(sender, message)
         
         // Use MLC LLM approach first
         try {
@@ -494,10 +484,10 @@ class RcsAutoReplyManager(private val context: Context) {
                 }
             }
             
-            val prompt = "Generate a helpful reply to this message."
-            val llmContext = "You are responding to a message from $sender who asked: \"$message\". " +
+            val prompt = "Generate a brief, friendly auto-reply to this message."
+            val llmContext = "You are responding to a message from $sender. " +
                             "Keep your response brief and conversational. " +
-                            "If their message seems to be asking for information, try to provide specific details if you have them."
+                            "The message you received is: \"$message\""
             
             val response = runBlocking { 
                 mlcLlmModule?.generateAnswer(prompt, llmContext, 0.7f)
@@ -530,9 +520,8 @@ class RcsAutoReplyManager(private val context: Context) {
                     )
                     testLLMMethod.isAccessible = true
                     
-                    // Create a proper prompt that treats the message as a potential question
-                    val prompt = "The following message may be asking about information in our documents: \"$message\". " +
-                               "Please provide a helpful response."
+                    // Create a proper prompt
+                    val prompt = "Message from $sender: \"$message\". Generate a friendly auto-reply that sounds natural and helpful."
                     
                     // Call the method directly
                     val result = testLLMMethod.invoke(callSmsModule, prompt)
@@ -553,30 +542,13 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "❌ Error with reflection approach for default response: ${e.message}")
         }
         
-        // If all approaches fail, provide a default response that references the message
-        Log.e(TAG, "⚠️ All dynamic response approaches failed, using simple fallback")
-        val fallbackResponse = "I received your message about \"${extractTopic(message)}\". I'll get back to you with more information soon. (ID: ${System.currentTimeMillis() % 10000})"
-        addLogEntry(sender, message, fallbackResponse, true, false)
+        // Last resort - guaranteed unique dynamic response
+        val uniqueId = System.currentTimeMillis() % 10000
+        val contextSnippet = message.take(15).replace(Regex("[,.!?;:]"), "")
+        val fallbackResponse = "I'll check your message about \"$contextSnippet...\" and respond when available. (ID: $uniqueId)"
+        Log.e(TAG, "⚠️ Using fallback as last resort: $fallbackResponse")
+        addLogEntry(sender, message, fallbackResponse, true, true)
         return fallbackResponse
-    }
-    
-    /**
-     * Extract the main topic of a message
-     */
-    private fun extractTopic(message: String): String {
-        if (message.isEmpty()) return "your inquiry"
-        
-        // Try to get a short snippet of the message
-        val words = message.split(Regex("\\s+"))
-        
-        return if (words.size <= 3) {
-            message
-        } else if (message.length <= 25) {
-            message
-        } else {
-            // Get first few words
-            words.take(3).joinToString(" ")
-        }
     }
     
     /**
@@ -587,7 +559,9 @@ class RcsAutoReplyManager(private val context: Context) {
         Log.e(TAG, "📚 Generating LLM response with document context")
         
         try {
-            // Try reflection approach first - this leverages the document-based response capability
+            // Try every possible approach to get a dynamic response
+            
+            // Try reflection approach first
             try {
                 val reactContext = try {
                     (context as ReactApplicationContext)
@@ -604,18 +578,14 @@ class RcsAutoReplyManager(private val context: Context) {
                         )
                         testLLMMethod.isAccessible = true
                         
-                        // Build a prompt specifically designed to get document-relevant information
-                        // This focuses on treating the message as a question about documents
-                        val enhancedPrompt = if (contextMessage.isNotEmpty()) {
-                            "The following message may be asking about information in our documents: \"$receivedMessage\". " +
-                            "Consider this additional context: \"$contextMessage\". " +
-                            "Please provide a helpful response that references relevant document information."
+                        // Build a prompt with context if available
+                        val prompt = if (contextMessage.isNotEmpty()) {
+                            "Message from $sender: \"$receivedMessage\". Generate a reply based on this context: \"$contextMessage\""
                         } else {
-                            "The following message may be asking about information in our documents: \"$receivedMessage\". " +
-                            "Please provide a helpful response that references relevant document information."
+                            "Message from $sender: \"$receivedMessage\". Generate a friendly, helpful reply."
                         }
                         
-                        val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
+                        val result = testLLMMethod.invoke(callSmsModule, prompt)
                         
                         if (result != null) {
                             val rawResponse = result as String
@@ -647,17 +617,17 @@ class RcsAutoReplyManager(private val context: Context) {
                     }
                 }
                 
-                val prompt = "Generate a document-based reply to this message."
+                val prompt = "Generate a brief, friendly auto-reply to this message."
                 
                 val mlcContext = if (contextMessage.isNotEmpty()) {
-                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                    "Keep your response brief, helpful and conversational. " +
+                    "You are responding to a message from $sender. " +
+                    "Keep your response brief and conversational. " +
                     "Consider this context for your response: \"$contextMessage\". " +
-                    "If their message seems to be asking for information, try to provide specific details from available documents."
+                    "The message you received is: \"$receivedMessage\""
                 } else {
-                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                    "Keep your response brief, helpful and conversational. " +
-                    "If their message seems to be asking for information, try to provide specific details from available documents."
+                    "You are responding to a message from $sender. " +
+                    "Keep your response brief and conversational. " +
+                    "The message you received is: \"$receivedMessage\""
                 }
                 
                 val response = runBlocking { 
@@ -665,7 +635,7 @@ class RcsAutoReplyManager(private val context: Context) {
                 }
                 
                 if (response != null && response.isNotEmpty()) {
-                    Log.e(TAG, "✅ MLC LLM generated document-based response: $response")
+                    Log.e(TAG, "✅ MLC LLM generated response: $response")
                     addLogEntry(sender, receivedMessage, response, true, true)
                     return response
                 }
@@ -675,11 +645,11 @@ class RcsAutoReplyManager(private val context: Context) {
             
             // All LLM approaches failed, don't use static templates
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
-            Log.e(TAG, "⚠️ Using message-specific fallback instead of empty response")
-            return "Thanks for your message about \"${extractTopic(receivedMessage)}\". I'll check our documentation for information related to your question and get back to you. (ID: ${System.currentTimeMillis() % 10000})"
+            Log.e(TAG, "❌❌❌ No response will be sent to avoid static templates")
+            return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in generateLLMResponseWithDocuments: ${e.message}")
-            return "I received your message about \"${extractTopic(receivedMessage)}\". I'll check the available information and get back to you soon. (ID: ${System.currentTimeMillis() % 10000})"
+            return ""
         }
     }
     
@@ -1197,13 +1167,6 @@ class RcsAutoReplyManager(private val context: Context) {
         val messageToUse = if (receivedMessage.isEmpty()) "Hello" else receivedMessage
         
         try {
-            // First try to generate a document-based response (highest priority)
-            val documentResponse = generateLLMResponseWithDocuments(sender, messageToUse)
-            if (documentResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated document-based response: $documentResponse")
-                return documentResponse
-            }
-            
             // Directly use MLC LLM for a guaranteed dynamic response
             if (mlcLlmModule == null) {
                 if (this.context is ReactApplicationContext) {
@@ -1222,7 +1185,6 @@ class RcsAutoReplyManager(private val context: Context) {
                                 "Your response MUST include at least one specific reference to something mentioned in their message. " +
                                 "Be brief and conversational. " +
                                 "NEVER use generic 'I'm unavailable' messages. " +
-                                "If the message seems to be asking about information, provide specific details from documents if available. " +
                                 "The message you received is: \"$messageToUse\""
             
             val prompt = "Generate a personalized auto-reply that directly references the content of this message."
@@ -1243,17 +1205,16 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "✅ Generated dynamic response via reflection: $reflectionResponse")
                 return reflectionResponse
             }
-            
-            // If all dynamic response generation methods fail, provide a guaranteed fallback
-            // This fallback still references the specific message to avoid static templates
-            Log.e(TAG, "⚠️ All dynamic response approaches failed, using message-specific fallback")
-            val fallbackResponse = "I received your message about \"${extractTopic(messageToUse)}\". I'll review it carefully and get back to you with more information. (ID: ${System.currentTimeMillis() % 10000})"
-            return fallbackResponse
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error forcing dynamic response: ${e.message}")
-            // Even on error, provide a response that references the message
-            return "I received your message about \"${extractTopic(messageToUse)}\". I'll respond to your inquiry as soon as possible. (ID: ${System.currentTimeMillis() % 10000})"
         }
+        
+        // Absolute last resort - completely random with message snippet and guaranteed uniqueness
+        val uniqueId = System.currentTimeMillis() % 10000
+        val contextSnippet = messageToUse.take(15).replace(Regex("[,.!?;:]"), "")
+        val fallbackResponse = "I'll check your message about \"$contextSnippet...\" and respond when available. (ID: $uniqueId)"
+        Log.e(TAG, "⚠️ Using absolute last resort: $fallbackResponse")
+        return fallbackResponse
     }
     
     /**
@@ -1278,12 +1239,8 @@ class RcsAutoReplyManager(private val context: Context) {
                     )
                     testLLMMethod.isAccessible = true
                     
-                    // Create a special prompt that forces a dynamic response and leverages documents
-                    val specialPrompt = "The following message may be asking about information in our documents: \"$message\". " +
-                                     "Please provide a helpful response that references any relevant document information. " +
-                                     "The response MUST mention something specific from the message. " + 
-                                     "DO NOT use generic 'I'm unavailable' messages. " +
-                                     "The message is from $sender."
+                    // Create a special prompt that forces a dynamic response
+                    val specialPrompt = "IMPORTANT: Generate a personalized reply to this message that specifically references its content: \"$message\". The response MUST mention something specific from the message. DO NOT use generic 'I'm unavailable' messages. The message is from $sender."
                     
                     val result = testLLMMethod.invoke(callSmsModule, specialPrompt)
                     

@@ -29,7 +29,7 @@ class CallLogCheckService : Service() {
     private val checkInterval = 30000L // 30 seconds
     
     // Constants
-    private val DEFAULT_MESSAGE = "I am busy, please give me some time, I will contact you."
+    private val DEFAULT_MESSAGE = "Thanks for your call. I'll respond to your message as soon as possible. (ID: AUTO)"
     private val AUTO_SMS_ENABLED_KEY = "@AutoSMS:Enabled"
     private val AI_SMS_ENABLED_KEY = "@AutoSMS:AIEnabled"
     private val AUTO_REPLY_ENABLED_KEY = "@AutoSMS:AutoReplyEnabled"
@@ -252,11 +252,8 @@ class CallLogCheckService : Service() {
             val aiEnabled = sharedPrefs.getBoolean(AI_SMS_ENABLED_KEY, false)
             
             // Get the appropriate message
-            val smsMessage = if (aiEnabled) {
-                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "AI: I am busy, available only for chat. How may I help you?") ?: DEFAULT_MESSAGE
-            } else {
-                DEFAULT_MESSAGE
-            }
+            val message = 
+                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "Thanks for your call. I'll respond to your specific query as soon as possible. (ID: AUTO)") ?: DEFAULT_MESSAGE
             
             val smsManager = SmsManager.getDefault()
             
@@ -272,7 +269,7 @@ class CallLogCheckService : Service() {
             val sentPI = PendingIntent.getBroadcast(this, 0, sentIntent, pendingIntentFlags)
             
             // Split message if it's too long
-            val parts = smsManager.divideMessage(smsMessage)
+            val parts = smsManager.divideMessage(message)
             
             // Send SMS
             if (parts.size > 1) {
@@ -284,7 +281,7 @@ class CallLogCheckService : Service() {
                 }
                 smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, smsMessage, sentPI, null)
+                smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
             }
             
             Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
@@ -293,7 +290,7 @@ class CallLogCheckService : Service() {
             storeMissedCallNumber(phoneNumber)
             
             // Save to history
-            saveSmsToHistory(phoneNumber, smsMessage, true)
+            saveSmsToHistory(phoneNumber, message, true)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)

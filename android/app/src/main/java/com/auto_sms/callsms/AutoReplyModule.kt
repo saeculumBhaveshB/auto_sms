@@ -201,7 +201,7 @@ class AutoReplyModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
     @ReactMethod
     fun getRcsAutoReplyMessage(promise: Promise) {
         try {
-            val message = rcsManager.getDefaultMessage()
+            val message = rcsManager.getDefaultMessage("Test Sender", "Test Message")
             promise.resolve(message)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting RCS auto-reply message: ${e.message}")

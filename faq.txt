@@ -1,0 +1,16 @@
+Frequently Asked Questions
+
+Q: How do I set up auto-replies?
+A: To set up auto-replies, go to Settings > Auto-Reply > Enable, then customize your messages.
+
+Q: Can I schedule auto-replies for specific times?
+A: Yes, in the premium plan you can set time-based rules for auto-replies.
+
+Q: Does the app work with RCS messaging?
+A: Yes, our app fully supports RCS messaging and standard SMS.
+
+Q: How do I cancel my subscription?
+A: You can cancel your subscription from the Account section in Settings.
+
+Q: Can I use custom templates?
+A: Premium and Enterprise plans support custom templates and dynamic responses.

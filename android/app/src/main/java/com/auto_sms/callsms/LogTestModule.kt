@@ -14,6 +14,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.BroadcastReceiver
 import android.content.Context
+import com.facebook.react.bridge.Arguments
 
 /**
  * LogTestModule - A React Native module for testing SMS and RCS logging functionality
@@ -110,62 +111,107 @@ class LogTestModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     @ReactMethod
     fun testRcsAutoReply(sender: String, message: String, promise: Promise) {
         try {
-            Log.e(TAG, "🧪 Testing RCS auto-reply directly")
+            Log.e(TAG, "🧪 Testing RCS auto-reply with direct call to RcsAutoReplyManager")
             Log.e(TAG, "   • Sender: $sender")
             Log.e(TAG, "   • Message: $message")
             
-            // First try the direct approach with RcsAutoReplyManager
+            val rcsManager = RcsAutoReplyManager(reactApplicationContext)
+            
+            // Process the message directly with the RcsAutoReplyManager
             val directReply = rcsManager.processMessage(sender, message)
             
             if (directReply != null) {
-                Log.e(TAG, "✅ Direct RcsAutoReplyManager test successful - Reply: $directReply")
-                
-                // Log this as if it were a real auto-reply for testing
-                rcsManager.addLogEntry(sender, message, directReply, true)
-                
-                promise.resolve(true)
-                return
+                Log.e(TAG, "✅ RcsAutoReplyManager generated reply: $directReply")
+                rcsManager.addLogEntry(sender, message, directReply, true, true) // Set isLLM to true
+                promise.resolve(directReply)
             } else {
-                Log.e(TAG, "⚠️ Direct RcsAutoReplyManager test didn't generate a reply")
-                // Continue with other methods
+                Log.e(TAG, "ℹ️ RcsAutoReplyManager decided not to reply")
+                promise.resolve("No reply generated")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error testing RCS auto-reply: ${e.message}")
+            promise.reject("TEST_RCS_AUTO_REPLY_ERROR", "Failed to test RCS auto-reply: ${e.message}")
+        }
+    }
+    
+    /**
+     * Test the MLC LLM directly for RCS
+     * This function is useful for debugging RCS auto-reply with MLC LLM
+     */
+    @ReactMethod
+    fun testRcsMLCLLM(message: String, promise: Promise) {
+        try {
+            Log.e(TAG, "🧪🧪🧪 TESTING RCS MLC LLM DIRECTLY 🧪🧪🧪")
+            Log.e(TAG, "   • Message: $message")
+            
+            val rcsManager = RcsAutoReplyManager(reactApplicationContext)
+            
+            // First ensure RCS auto-reply is enabled
+            rcsManager.setEnabled(true)
+            
+            // Also force LLM to be enabled
+            rcsManager.setLLMEnabled(true)
+            
+            // Test with direct message generation
+            val directResponse = rcsManager.getDefaultMessage("Test User", message)
+            
+            Log.e(TAG, "📝 Direct RCS LLM response: $directResponse")
+            
+            // Process message as if it came from notification
+            val processedResponse = rcsManager.processMessage("Test User", message)
+            
+            Log.e(TAG, "📝 Processed RCS LLM response: $processedResponse")
+            
+            // Create a result object with both responses
+            val resultMap = Arguments.createMap().apply {
+                putString("directResponse", directResponse)
+                putString("processedResponse", processedResponse ?: "No response generated")
+                putBoolean("isLLMEnabled", rcsManager.isLLMEnabled())
+                putBoolean("isRcsEnabled", rcsManager.isEnabled())
             }
             
-            // Check if notification listener is enabled in system
-            val enabledListeners = Settings.Secure.getString(
-                reactApplicationContext.contentResolver,
-                "enabled_notification_listeners"
-            )
+            promise.resolve(resultMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error testing RCS MLC LLM: ${e.message}")
+            promise.reject("TEST_RCS_MLC_LLM_ERROR", "Failed to test RCS MLC LLM: ${e.message}")
+        }
+    }
+    
+    /**
+     * Test forcing a dynamic RCS response with MLC LLM
+     * This ensures we never get static responses
+     */
+    @ReactMethod
+    fun testForceDynamicRcsResponse(sender: String, message: String, promise: Promise) {
+        try {
+            Log.e(TAG, "🔥🔥🔥 TESTING FORCED DYNAMIC RCS RESPONSE 🔥🔥🔥")
+            Log.e(TAG, "   • Sender: $sender")
+            Log.e(TAG, "   • Message: $message")
             
-            val isEnabled = enabledListeners?.contains(reactApplicationContext.packageName) == true
+            val rcsManager = RcsAutoReplyManager(reactApplicationContext)
             
-            if (!isEnabled) {
-                Log.e(TAG, "❌❌❌ CRITICAL: Notification listener is NOT enabled in system settings!")
-                Log.e(TAG, "❌❌❌ This is why RCS auto-replies are not working!")
-                promise.reject("ERROR", "Notification listener not enabled in system settings")
-                return
-            }
+            // First ensure RCS auto-reply is enabled
+            rcsManager.setEnabled(true)
             
-            // Alternative approach: Use a broadcast to trigger the service
-            Log.e(TAG, "🔄 Using broadcast method to test RCS auto-reply")
+            // Also force LLM to be enabled
+            rcsManager.setLLMEnabled(true)
             
+            // Force a truly dynamic response
+            val dynamicResponse = rcsManager.forceDynamicMlcResponse(sender, message)
+            
+            Log.e(TAG, "📝 Forced dynamic response: $dynamicResponse")
+            
+            // Create a broadcast to test the notification listener
             val intent = Intent("com.auto_sms.TEST_RCS_AUTO_REPLY")
-            intent.setPackage(reactApplicationContext.packageName)
             intent.putExtra("sender", sender)
             intent.putExtra("message", message)
-            
-            // Reset RCS state to ensure we can get a reply
-            val resetIntent = Intent("com.auto_sms.RESET_RCS_STATE")
-            reactApplicationContext.sendBroadcast(resetIntent)
-            
-            // Send the test broadcast
+            intent.putExtra("force_dynamic", true)
             reactApplicationContext.sendBroadcast(intent)
             
-            // Report success for now, since we can't easily get result
-            Log.e(TAG, "✅ Sent test broadcast, check logs for results")
-            promise.resolve(true)
+            promise.resolve(dynamicResponse)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Exception testing RCS auto-reply: ${e.message}")
-            promise.reject("EXCEPTION", e.message)
+            Log.e(TAG, "❌ Error testing forced dynamic RCS response: ${e.message}")
+            promise.reject("TEST_FORCE_DYNAMIC_ERROR", "Failed to test forced dynamic response: ${e.message}")
         }
     }
     
