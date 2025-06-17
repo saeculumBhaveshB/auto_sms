@@ -166,46 +166,45 @@ class RcsAutoReplyManager(private val context: Context) {
     }
     
     /**
-     * Get the auto-reply message - ALWAYS uses LLM to generate a dynamic response
+     * Get a default message for auto-reply
      * With enhanced guarantees against static messages
      */
     fun getDefaultMessage(sender: String = "Unknown", receivedMessage: String = ""): String {
         // If receivedMessage is empty, use a placeholder to still generate a dynamic response
         val messageToUse = if (receivedMessage.isEmpty()) "Hello" else receivedMessage
         
-        Log.e(TAG, "🧠🧠🧠 GENERATING DYNAMIC RCS RESPONSE 🧠🧠🧠")
+        Log.e(TAG, "🧠🧠🧠 START: GENERATING DYNAMIC RCS RESPONSE 🧠🧠🧠")
         Log.e(TAG, "   • Sender: $sender")
         Log.e(TAG, "   • Message: $messageToUse")
         
         try {
             // Primary approach: Use MLC LLM directly
+            Log.e(TAG, "🧠 Attempting to generate response using MLC LLM directly")
             val mlcResponse = generateMlcLLMResponse(sender, messageToUse)
             if (mlcResponse.isNotEmpty()) {
                 Log.e(TAG, "✅ Generated dynamic response via MLC LLM: $mlcResponse")
+                Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
                 return mlcResponse
             }
             
-            // Secondary approach: Use reflection if MLC LLM fails
-            val reflectionResponse = generateReflectionBasedResponse(sender, messageToUse)
-            if (reflectionResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated dynamic response via reflection: $reflectionResponse")
-                return reflectionResponse
-            }
-            
-            // Tertiary approach: Use document-based LLM
+            // Secondary approach: Use document-based LLM
+            Log.e(TAG, "🧠 Attempting to generate response using document-based approach")
             val documentResponse = generateLLMResponseWithDocuments(sender, messageToUse)
             if (documentResponse.isNotEmpty()) {
                 Log.e(TAG, "✅ Generated dynamic response with documents: $documentResponse")
+                Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
                 return documentResponse
             }
             
-            // If all approaches fail, return null to prevent sending static messages
+            // If all approaches fail, return empty string to prevent sending static messages
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
             Log.e(TAG, "❌❌❌ No response will be sent to avoid static templates")
+            Log.e(TAG, "🧠🧠🧠 END: NO DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
             return ""
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error generating dynamic response: ${e.message}")
+            Log.e(TAG, "🧠🧠🧠 END: ERROR IN DYNAMIC RCS RESPONSE GENERATION 🧠🧠🧠")
             // Return empty string to indicate no response should be sent
             return ""
         }
@@ -260,20 +259,28 @@ class RcsAutoReplyManager(private val context: Context) {
      * Generate response using MLC LLM directly
      */
     private fun generateMlcLLMResponse(sender: String, message: String): String {
+        Log.e(TAG, "🧠 START: generateMlcLLMResponse for sender: $sender")
         try {
             if (mlcLlmModule == null) {
+                Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
                 if (this.context is ReactApplicationContext) {
+                    Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
                     mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
                     try {
+                        Log.e(TAG, "🧠 Initializing MLC LLM module")
                         isMLCInitialized = mlcLlmModule?.initialize() ?: false
                         Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
                     } catch (e: Exception) {
                         Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
                     }
+                } else {
+                    Log.e(TAG, "❌ Context is not ReactApplicationContext, cannot initialize MLC LLM")
+                    return ""
                 }
             }
             
             // Craft a very specific prompt to ensure dynamic content
+            Log.e(TAG, "✏️ Creating prompt context for MLC LLM")
             val promptContext = "You are responding to a message from $sender. " +
                            "Keep your response brief, friendly and conversational. " +
                            "You MUST reference specific content from their message in your reply. " +
@@ -281,19 +288,31 @@ class RcsAutoReplyManager(private val context: Context) {
                            "The message you received is: \"$message\""
             
             val prompt = "Generate a brief, specific reply that directly addresses what was said in the message."
+            Log.e(TAG, "✏️ Prompt: $prompt")
+            Log.e(TAG, "✏️ Context length: ${promptContext.length} characters")
             
+            Log.e(TAG, "🧠 Calling MLC LLM generateAnswer")
+            val startTime = System.currentTimeMillis()
             val response = runBlocking { 
                 mlcLlmModule?.generateAnswer(prompt, promptContext, 0.7f)
             }
+            val endTime = System.currentTimeMillis()
+            Log.e(TAG, "⏱️ MLC LLM response generation took ${endTime - startTime} ms")
             
             if (response != null && response.isNotEmpty()) {
+                Log.e(TAG, "✅ MLC LLM generated response (${response.length} chars): $response")
+                Log.e(TAG, "🧠 END: generateMlcLLMResponse - SUCCESS")
                 return response
+            } else {
+                Log.e(TAG, "❌ MLC LLM returned null or empty response")
+                Log.e(TAG, "🧠 END: generateMlcLLMResponse - EMPTY RESPONSE")
+                return ""
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error with MLC LLM approach: ${e.message}")
+            Log.e(TAG, "🧠 END: generateMlcLLMResponse - ERROR")
+            return ""
         }
-        
-        return ""
     }
     
     /**
@@ -588,20 +607,86 @@ class RcsAutoReplyManager(private val context: Context) {
      * This is the primary method for generating LLM responses
      */
     private fun generateLLMResponseWithDocuments(sender: String, receivedMessage: String, contextMessage: String = ""): String {
-        Log.e(TAG, "📚 Generating LLM response with document context")
+        Log.e(TAG, "📚 START: Generating LLM response with document context")
+        Log.e(TAG, "📚 Sender: $sender")
+        Log.e(TAG, "📚 Message: $receivedMessage")
+        if (contextMessage.isNotEmpty()) {
+            Log.e(TAG, "📚 Additional context provided: $contextMessage")
+        }
         
         try {
-            // Try reflection approach first - this leverages the document-based response capability
+            // Try MLC LLM approach
             try {
+                Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
+                if (mlcLlmModule == null) {
+                    Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
+                    if (this.context is ReactApplicationContext) {
+                        Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
+                        mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
+                        try {
+                            Log.e(TAG, "🧠 Initializing MLC LLM module")
+                            isMLCInitialized = mlcLlmModule?.initialize() ?: false
+                            Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
+                        }
+                    } else {
+                        Log.e(TAG, "❌ Context is not ReactApplicationContext, cannot initialize MLC LLM")
+                        Log.e(TAG, "📚 END: Document-based response generation failed - context issue")
+                        return ""
+                    }
+                }
+                
+                val prompt = "Generate a document-based reply to this message."
+                Log.e(TAG, "✏️ Document-based prompt: $prompt")
+                
+                val mlcContext = if (contextMessage.isNotEmpty()) {
+                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                    "Keep your response brief, helpful and conversational. " +
+                    "Consider this context for your response: \"$contextMessage\". " +
+                    "If their message seems to be asking for information, try to provide specific details from available documents."
+                } else {
+                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                    "Keep your response brief, helpful and conversational. " +
+                    "If their message seems to be asking for information, try to provide specific details from available documents."
+                }
+                Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
+                
+                Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for document-based response")
+                val startTime = System.currentTimeMillis()
+                val response = runBlocking { 
+                    mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
+                }
+                val endTime = System.currentTimeMillis()
+                Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
+                
+                if (response != null && response.isNotEmpty()) {
+                    Log.e(TAG, "✅ MLC LLM generated document-based response (${response.length} chars): $response")
+                    addLogEntry(sender, receivedMessage, response, true, true)
+                    Log.e(TAG, "📚 END: Document-based response generation successful")
+                    return response
+                } else {
+                    Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error with MLC LLM document-based approach: ${e.message}")
+                e.printStackTrace()
+            }
+            
+            // Try reflection approach as fallback
+            try {
+                Log.e(TAG, "🔍 Attempting to use reflection approach for document-based response")
                 val reactContext = try {
                     (context as ReactApplicationContext)
                 } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error getting ReactContext: ${e.message}")
                     null
                 }
                 
                 if (reactContext != null) {
                     val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
                     if (callSmsModule != null) {
+                        Log.e(TAG, "🔍 Found CallSmsModule, using testLLM method via reflection")
                         val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
                             "testLLM",
                             String::class.java
@@ -619,71 +704,50 @@ class RcsAutoReplyManager(private val context: Context) {
                             "Please provide a helpful response that references relevant document information."
                         }
                         
+                        Log.e(TAG, "✏️ Enhanced document prompt via reflection: $enhancedPrompt")
+                        
+                        Log.e(TAG, "🧠 Calling testLLM via reflection")
+                        val startTime = System.currentTimeMillis()
                         val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
+                        val endTime = System.currentTimeMillis()
+                        Log.e(TAG, "⏱️ Reflection-based document response took ${endTime - startTime} ms")
                         
                         if (result != null) {
                             val rawResponse = result as String
                             val cleanedResponse = cleanLLMResponse(rawResponse)
                             
                             if (cleanedResponse.isNotEmpty()) {
-                                Log.e(TAG, "✅ Successfully got document-based LLM response: $cleanedResponse")
+                                Log.e(TAG, "✅ Successfully got document-based LLM response via reflection (${cleanedResponse.length} chars): $cleanedResponse")
                                 addLogEntry(sender, receivedMessage, cleanedResponse, true, true)
+                                Log.e(TAG, "📚 END: Document-based response generation successful via reflection")
                                 return cleanedResponse
+                            } else {
+                                Log.e(TAG, "❌ Reflection approach returned empty cleaned response")
                             }
+                        } else {
+                            Log.e(TAG, "❌ Reflection approach returned null result")
                         }
+                    } else {
+                        Log.e(TAG, "❌ CallSmsModule not found")
                     }
+                } else {
+                    Log.e(TAG, "❌ ReactContext is null")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
-            }
-            
-            // Try MLC LLM approach
-            try {
-                if (mlcLlmModule == null) {
-                    if (this.context is ReactApplicationContext) {
-                        mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
-                        try {
-                            isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                            Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
-                        }
-                    }
-                }
-                
-                val prompt = "Generate a document-based reply to this message."
-                
-                val mlcContext = if (contextMessage.isNotEmpty()) {
-                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                    "Keep your response brief, helpful and conversational. " +
-                    "Consider this context for your response: \"$contextMessage\". " +
-                    "If their message seems to be asking for information, try to provide specific details from available documents."
-                } else {
-                    "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                    "Keep your response brief, helpful and conversational. " +
-                    "If their message seems to be asking for information, try to provide specific details from available documents."
-                }
-                
-                val response = runBlocking { 
-                    mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
-                }
-                
-                if (response != null && response.isNotEmpty()) {
-                    Log.e(TAG, "✅ MLC LLM generated document-based response: $response")
-                    addLogEntry(sender, receivedMessage, response, true, true)
-                    return response
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error with MLC LLM approach: ${e.message}")
+                e.printStackTrace()
             }
             
             // All LLM approaches failed, don't use static templates
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
             Log.e(TAG, "⚠️ No response will be sent to avoid static templates")
+            Log.e(TAG, "📚 END: Document-based response generation failed - all approaches")
             return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in generateLLMResponseWithDocuments: ${e.message}")
-            return "I received your message about \"${extractTopic(receivedMessage)}\". I'll check the available information and get back to you soon. (ID: ${System.currentTimeMillis() % 10000})"
+            e.printStackTrace()
+            Log.e(TAG, "📚 END: Document-based response generation failed with exception")
+            return ""
         }
     }
     
@@ -1193,7 +1257,7 @@ class RcsAutoReplyManager(private val context: Context) {
      * This ensures we get a non-static response for RCS auto-replies
      */
     fun forceDynamicMlcResponse(sender: String, receivedMessage: String): String {
-        Log.e(TAG, "🔥🔥🔥 FORCING DYNAMIC MLC LLM RESPONSE 🔥🔥🔥")
+        Log.e(TAG, "🔥🔥🔥 START: FORCING DYNAMIC MLC LLM RESPONSE 🔥🔥🔥")
         Log.e(TAG, "   • Sender: $sender")
         Log.e(TAG, "   • Message: $receivedMessage")
         
@@ -1202,26 +1266,41 @@ class RcsAutoReplyManager(private val context: Context) {
         
         try {
             // First try to generate a document-based response (highest priority)
+            Log.e(TAG, "📚 Attempting document-based MLC LLM response")
+            val startTime = System.currentTimeMillis()
             val documentResponse = generateLLMResponseWithDocuments(sender, messageToUse)
+            val endTime = System.currentTimeMillis()
+            Log.e(TAG, "⏱️ Document-based response generation took ${endTime - startTime} ms")
+            
             if (documentResponse.isNotEmpty()) {
                 Log.e(TAG, "✅ Generated document-based response: $documentResponse")
+                Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE GENERATED SUCCESSFULLY 🔥🔥🔥")
                 return documentResponse
             }
             
             // Directly use MLC LLM for a guaranteed dynamic response
+            Log.e(TAG, "🧠 Attempting direct MLC LLM response")
             if (mlcLlmModule == null) {
+                Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
                 if (this.context is ReactApplicationContext) {
+                    Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
                     mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
                     try {
+                        Log.e(TAG, "🧠 Initializing MLC LLM module")
                         isMLCInitialized = mlcLlmModule?.initialize() ?: false
                         Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
                     } catch (e: Exception) {
                         Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
                     }
+                } else {
+                    Log.e(TAG, "❌ Context is not ReactApplicationContext, cannot initialize MLC LLM")
+                    Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE FAILED - CONTEXT ISSUE 🔥🔥🔥")
+                    return ""
                 }
             }
             
             // Very specific context that forces dynamic content
+            Log.e(TAG, "✏️ Creating prompt context for direct MLC LLM response")
             val promptContext = "IMPORTANT INSTRUCTIONS: You are responding to a message from $sender. " +
                                 "Your response MUST include at least one specific reference to something mentioned in their message. " +
                                 "Be brief and conversational. " +
@@ -1230,23 +1309,35 @@ class RcsAutoReplyManager(private val context: Context) {
                                 "The message you received is: \"$messageToUse\""
             
             val prompt = "Generate a personalized auto-reply that directly references the content of this message."
+            Log.e(TAG, "✏️ Direct MLC LLM prompt: $prompt")
+            Log.e(TAG, "✏️ Direct MLC LLM context length: ${promptContext.length} characters")
             
             // Set higher temperature for more creative responses
+            Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for direct response")
+            val directStartTime = System.currentTimeMillis()
             val response = runBlocking {
                 mlcLlmModule?.generateAnswer(prompt, promptContext, 0.8f)
             }
+            val directEndTime = System.currentTimeMillis()
+            Log.e(TAG, "⏱️ Direct MLC LLM response generation took ${directEndTime - directStartTime} ms")
             
             if (response != null && response.isNotEmpty()) {
-                Log.e(TAG, "✅ MLC LLM generated dynamic response: $response")
+                Log.e(TAG, "✅ MLC LLM generated direct dynamic response (${response.length} chars): $response")
+                Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE GENERATED SUCCESSFULLY 🔥🔥🔥")
                 return response
+            } else {
+                Log.e(TAG, "❌ MLC LLM returned null or empty direct response")
             }
             
             // If all dynamic response generation methods fail, return empty string
             Log.e(TAG, "⚠️ All dynamic response approaches failed, no response will be sent")
+            Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE FAILED - ALL APPROACHES 🔥🔥🔥")
             return ""
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error forcing dynamic response: ${e.message}")
-            // Return null on error to prevent static messages
+            e.printStackTrace()
+            Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE FAILED WITH EXCEPTION 🔥🔥🔥")
+            // Return empty string on error to prevent static messages
             return ""
         }
     }

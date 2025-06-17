@@ -492,17 +492,36 @@ class SmsReceiver : BroadcastReceiver() {
      */
     fun generateLLMResponse(context: Context, question: String): String {
         try {
-            Log.e(TAG, "🧠🧠🧠 LLM - CRITICAL: generateLLMResponse called for question: $question")
+            Log.e(TAG, "🧠🧠🧠 LLM - START: generateLLMResponse called for question: $question")
             
             // First, ensure LocalLLM environment is prepared
             if (!initializeLocalLLM(context)) {
                 Log.e(TAG, "❌ LLM ERROR - Failed to initialize LocalLLM environment")
-                Log.e(TAG, "⚠️ FALLING BACK to error response")
+                Log.e(TAG, "⚠️ FALLING BACK to empty response")
                 return "" // Return empty string instead of error message
             }
             
+            Log.e(TAG, "📚 LLM - Environment initialized, checking for documents")
+            
+            // Check if we have any documents for context
+            val documentsDir = File(context.filesDir, "documents")
+            if (!documentsDir.exists() || documentsDir.listFiles()?.isEmpty() != false) {
+                Log.e(TAG, "📄 LLM - No documents found for context. User needs to upload documents.")
+                return "" // Return empty string to avoid sending static message
+            }
+            
+            Log.e(TAG, "✅ LLM - Found existing documents for context")
+            // Log available documents for debugging
+            documentsDir.listFiles()?.forEach { file ->
+                Log.e(TAG, "📄 LLM - Available document: ${file.name} (${file.length()} bytes)")
+            }
+            
+            // DIAGNOSTIC STEP: Record start time for performance tracking
+            val overallStartTime = System.currentTimeMillis()
+            
             // First try to use direct method from CallSmsModule for consistent behavior with UI
             try {
+                Log.e(TAG, "🔍 LLM - Attempting to use CallSmsModule for enhanced document retrieval")
                 // Try to access CallSmsModule for enhanced document retrieval
                 val reactContext = try {
                     (context.applicationContext as ReactApplication)
@@ -510,7 +529,7 @@ class SmsReceiver : BroadcastReceiver() {
                         .reactInstanceManager
                         .currentReactContext
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error getting ReactContext: ${e.message}")
+                    Log.e(TAG, "❌ LLM ERROR - Exception getting ReactContext: ${e.message}")
                     null
                 }
                 
@@ -518,6 +537,7 @@ class SmsReceiver : BroadcastReceiver() {
                     val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
                     if (callSmsModule != null) {
                         try {
+                            Log.e(TAG, "🔍 LLM - Found CallSmsModule, using testLLM method")
                             // Get the method with reflection
                             val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
                                 "testLLM",
@@ -525,31 +545,40 @@ class SmsReceiver : BroadcastReceiver() {
                             )
                             testLLMMethod.isAccessible = true
                             
+                            // Enhance the prompt to focus on document content
+                            val enhancedQuestion = "Based on the documents available, please answer: $question"
+                            
                             // Call the method directly
-                            val result = testLLMMethod.invoke(callSmsModule, question)
+                            Log.e(TAG, "🧠 LLM - Calling testLLM with enhanced question: $enhancedQuestion")
+                            val result = testLLMMethod.invoke(callSmsModule, enhancedQuestion)
                             if (result != null) {
                                 val response = result as String
-                                Log.e(TAG, "✅ LLM - Generated response using direct CallSmsModule.testLLM: $response")
+                                Log.e(TAG, "✅ LLM - Generated response using CallSmsModule.testLLM: $response")
                                 return response
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error calling direct testLLM method: ${e.message}", e)
+                            Log.e(TAG, "❌ LLM ERROR - Exception calling testLLM method: ${e.message}", e)
                             // Continue with fallback methods
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error in direct CallSmsModule approach: ${e.message}", e)
+                Log.e(TAG, "❌ LLM ERROR - Exception in CallSmsModule approach: ${e.message}", e)
                 // Continue with fallback methods
             }
             
-            // Continue with original implementation if direct method failed
-            // Try to access CallSmsModule for enhanced document retrieval
+            // Continue with enhanced document retrieval if direct method failed
             try {
-                val reactContext = (context.applicationContext as ReactApplication)
-                    .reactNativeHost
-                    .reactInstanceManager
-                    .currentReactContext
+                Log.e(TAG, "🔍 LLM - Attempting enhanced document retrieval with reflection")
+                val reactContext = try {
+                    (context.applicationContext as ReactApplication)
+                        .reactNativeHost
+                        .reactInstanceManager
+                        .currentReactContext
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ LLM ERROR - Exception getting ReactContext: ${e.message}")
+                    null
+                }
                 
                 if (reactContext != null) {
                     // If we have ReactContext, try to use the improved document QA
@@ -558,7 +587,7 @@ class SmsReceiver : BroadcastReceiver() {
                         // Use reflection to access the internal methods we need
                         // This allows us to reuse the document extraction and retrieval logic
                         try {
-                            Log.e(TAG, "🔍 Using enhanced document retrieval for better context")
+                            Log.e(TAG, "🔍 LLM - Using enhanced document retrieval for better context")
                             
                             // Get private methods via reflection
                             val extractTextMethod = CallSmsModule::class.java.getDeclaredMethod("extractTextFromAllDocuments")
@@ -582,57 +611,45 @@ class SmsReceiver : BroadcastReceiver() {
                             buildQAPromptMethod.isAccessible = true
                             
                             // Call methods
+                            Log.e(TAG, "📚 LLM - Extracting text from all documents")
                             val documentsWithText = extractTextMethod.invoke(callSmsModule) as Map<*, *>
                             
                             if (documentsWithText.isNotEmpty()) {
-                                Log.e(TAG, "📚 Found ${documentsWithText.size} documents with text")
+                                Log.e(TAG, "📚 LLM - Found ${documentsWithText.size} documents with text")
                                 
+                                Log.e(TAG, "📝 LLM - Creating passages from documents")
                                 val passages = createPassagesMethod.invoke(callSmsModule, documentsWithText) as List<*>
-                                Log.e(TAG, "📝 Created ${passages.size} passages for context retrieval")
+                                Log.e(TAG, "📝 LLM - Created ${passages.size} passages for context retrieval")
                                 
+                                Log.e(TAG, "🔍 LLM - Retrieving relevant passages for query: $question")
                                 val relevantPassages = retrievePassagesMethod.invoke(callSmsModule, question, passages, 5) as List<*>
-                                Log.e(TAG, "🔍 Found ${relevantPassages.size} relevant passages for query")
+                                Log.e(TAG, "🔍 LLM - Found ${relevantPassages.size} relevant passages for query")
                                 
                                 if (relevantPassages.isNotEmpty()) {
+                                    Log.e(TAG, "✏️ LLM - Building enhanced QA prompt")
                                     val enhancedPrompt = buildQAPromptMethod.invoke(callSmsModule, question, relevantPassages) as String
-                                    Log.e(TAG, "✅ Built enhanced QA prompt with ${enhancedPrompt.length} chars")
+                                    Log.e(TAG, "✅ LLM - Built enhanced QA prompt with ${enhancedPrompt.length} chars")
                                     
                                     // Now use this enhanced prompt for LLM
                                     return generateLLMResponseWithPrompt(context, enhancedPrompt)
                                 }
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error using enhanced document retrieval: ${e.message}", e)
+                            Log.e(TAG, "❌ LLM ERROR - Exception using enhanced document retrieval: ${e.message}", e)
                             // Continue with normal document handling if this fails
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error accessing CallSmsModule: ${e.message}", e)
+                Log.e(TAG, "❌ LLM ERROR - Exception accessing CallSmsModule: ${e.message}", e)
                 // Continue with normal document handling if this fails
             }
             
             // Fallback to original document handling if enhanced retrieval failed
-            Log.e(TAG, "📄 Using standard document context method")
-            
-            // Check if we have any documents for context
-            val documentsDir = File(context.filesDir, "documents")
-            if (!documentsDir.exists() || documentsDir.listFiles()?.isEmpty() != false) {
-                Log.e(TAG, "📄 LLM - No documents found for context. User needs to upload documents.")
-                return "I'm sorry, but I don't have enough information to answer that. Please upload some documents through the app settings."
-            } else {
-                Log.e(TAG, "✅ LLM - Found existing documents for context")
-                // Log available documents for debugging
-                documentsDir.listFiles()?.forEach { file ->
-                    Log.e(TAG, "📄 LLM - Available document: ${file.name} (${file.length()} bytes)")
-                }
-            }
-            
-            // DIAGNOSTIC STEP: Record start time for performance tracking
-            val overallStartTime = System.currentTimeMillis()
+            Log.e(TAG, "📄 LLM - Using standard document context method")
             
             // Create enhanced prompt with document metadata and content
-            Log.e(TAG, "🔍 LLM - Creating enhanced prompt with document context")
+            Log.e(TAG, "🔍 LLM - Creating enhanced prompt with document content")
             val enhancedPrompt = try {
                 buildPromptWithDocumentContent(context, question)
             } catch (e: Exception) {
@@ -641,23 +658,20 @@ class SmsReceiver : BroadcastReceiver() {
             }
             
             // Use the enhanced prompt to generate a response
-            return generateLLMResponseWithPrompt(context, enhancedPrompt)
+            val response = generateLLMResponseWithPrompt(context, enhancedPrompt)
+            
+            // Performance tracking
+            val totalTime = System.currentTimeMillis() - overallStartTime
+            Log.e(TAG, "⏱️ LLM - Total processing time: $totalTime ms")
+            
+            Log.e(TAG, "🧠🧠🧠 LLM - END: generateLLMResponse completed")
+            return response
         } catch (e: Exception) {
             Log.e(TAG, "❌ LLM ERROR - Exception generating LLM response", e)
             e.printStackTrace()
             
-            // Final fallback to manual implementation
-            try {
-                Log.e(TAG, "🔄 LLM - Attempting final fallback to manual implementation")
-                val enhancedPrompt = buildPromptWithDocumentContent(context, question)
-                val answer = manualLLM.generateAnswer(enhancedPrompt)
-                Log.e(TAG, "✅ LLM - Generated answer using MANUAL implementation in final fallback: $answer")
-                return answer
-            } catch (e2: Exception) {
-                Log.e(TAG, "❌ LLM ERROR - Even manual implementation failed", e2)
-                Log.e(TAG, "⚠️ FALLING BACK to error response")
-                return "" // Return empty string instead of error message to avoid sending duplicate
-            }
+            // Return empty string to avoid static messages
+            return ""
         }
     }
     
@@ -1238,36 +1252,26 @@ class SmsReceiver : BroadcastReceiver() {
      * Send auto-reply message using MLC LLM with document context
      */
     private fun sendAutoReply(context: Context, phoneNumber: String) {
-        Log.d(TAG, "📤 SmsReceiver - Sending LLM-based auto-reply to $phoneNumber")
+        Log.d(TAG, "📤 SmsReceiver - START: Sending MLC LLM-based auto-reply to $phoneNumber")
         
         try {
-            // Generate dynamic response using LLM
+            // Generate dynamic response using MLC LLM with documents
             var responseMessage = ""
             
-            // Try to get response from LLM
+            // Try to get response from MLC LLM
             try {
+                Log.d(TAG, "🧠 SmsReceiver - Generating document-based response using MLC LLM")
                 // Use generateLLMResponse method to create a document-based response
-                responseMessage = generateLLMResponse(context, "Hello")
-                Log.d(TAG, "🧠 Generated document-based response: $responseMessage")
+                responseMessage = generateLLMResponse(context, "Generate a brief auto-reply message based on the documents")
+                Log.d(TAG, "🧠 SmsReceiver - Generated document-based response: $responseMessage")
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error generating LLM response: ${e.message}")
+                Log.e(TAG, "❌ SmsReceiver - Error generating MLC LLM response: ${e.message}")
             }
             
-            // If LLM fails, use a dynamic fallback with timestamp ID
+            // If LLM fails, don't send any message
             if (responseMessage.isEmpty()) {
-                try {
-                    // Try again with a simpler prompt
-                    responseMessage = generateLLMResponse(context, "Generate a brief auto-reply message")
-                    Log.d(TAG, "🧠 Generated fallback LLM response: $responseMessage")
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error generating fallback LLM response: ${e.message}")
-                }
-                
-                // If still empty, don't send any message
-                if (responseMessage.isEmpty()) {
-                    Log.d(TAG, "⚠️ LLM failed to generate any response, no message will be sent")
-                    return
-                }
+                Log.d(TAG, "⚠️ SmsReceiver - MLC LLM failed to generate response, no message will be sent")
+                return
             }
             
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1288,6 +1292,7 @@ class SmsReceiver : BroadcastReceiver() {
             val sentPI = PendingIntent.getBroadcast(context, 0, sentIntent, pendingIntentFlags)
             
             // Send the message
+            Log.d(TAG, "📤 SmsReceiver - Sending MLC LLM-based response: $responseMessage")
             smsManager.sendTextMessage(phoneNumber, null, responseMessage, sentPI, null)
             
             // Save to history with correct type
@@ -1295,13 +1300,13 @@ class SmsReceiver : BroadcastReceiver() {
                 put("phoneNumber", phoneNumber)
                 put("message", responseMessage)
                 put("status", "SENT")
-                put("type", "LLM_AUTO_REPLY") // Mark as LLM-based auto-reply
+                put("type", "MLC_LLM_AUTO_REPLY") // Mark as MLC LLM-based auto-reply
                 put("timestamp", System.currentTimeMillis())
             }
             
             saveSmsToHistory(context, historyItem)
             
-            Log.d(TAG, "✅ SmsReceiver - LLM-based auto-reply sent successfully")
+            Log.d(TAG, "✅ SmsReceiver - END: MLC LLM-based auto-reply sent successfully")
         } catch (e: Exception) {
             Log.e(TAG, "❌ SmsReceiver - Error sending auto-reply: ${e.message}")
             e.printStackTrace()

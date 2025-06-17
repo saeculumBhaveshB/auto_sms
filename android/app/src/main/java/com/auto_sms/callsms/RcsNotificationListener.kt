@@ -818,42 +818,23 @@ class RcsNotificationListener : NotificationListenerService() {
         return false
     }
 
-    private fun sendAutoReply(
-        replyAction: Notification.Action,
-        conversationId: String?,
-        sender: String,
-        originalMessage: String,
-        replyMessage: String
-    ) {
+    /**
+     * Send auto-reply using MLC LLM with document context
+     */
+    private fun sendAutoReply(replyAction: Notification.Action, conversationId: String, sender: String, originalMessage: String, replyMessage: String) {
         try {
-            Log.e(TAG, "📤📤📤 SENDING AUTO-REPLY 📤📤📤")
+            Log.e(TAG, "🧠🧠🧠 START: SENDING MLC LLM AUTO-REPLY 🧠🧠🧠")
             Log.e(TAG, "   • To: $sender")
             Log.e(TAG, "   • Original: $originalMessage")
-            Log.e(TAG, "   • Initial reply: $replyMessage")
             Log.e(TAG, "   • Conversation ID: $conversationId")
-            
-            // Always enable LLM for RCS responses
-            rcsManager.setLLMEnabled(true)
-            
-            // Always force a dynamic response from MLC LLM
-            val dynamicReplyMessage = rcsManager.forceDynamicMlcResponse(sender, originalMessage)
-            
-            // Use the dynamic response if available, otherwise use the original
-            val finalReplyMessage = if (dynamicReplyMessage.isNotEmpty()) {
-                Log.e(TAG, "✅ Using forced dynamic MLC LLM response")
-                dynamicReplyMessage
-            } else {
-                Log.e(TAG, "⚠️ Using original reply (should still be dynamic)")
-                replyMessage
-            }
-            
-            Log.e(TAG, "   • Final reply: $finalReplyMessage")
+            Log.e(TAG, "   • Reply: $replyMessage")
             
             // Create the remote input
             val remoteInputs = replyAction.remoteInputs
             if (remoteInputs.isEmpty()) {
                 Log.e(TAG, "❌ No remote inputs found")
                 rcsManager.addLogEntry(sender, originalMessage, "Failed: No remote inputs", false, false)
+                Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ABORTED - NO REMOTE INPUTS 🧠🧠🧠")
                 return
             }
             
@@ -866,16 +847,9 @@ class RcsNotificationListener : NotificationListenerService() {
             val resultIntent = Intent()
             val resultBundle = Bundle()
             
-            // ADD TIMESTAMP to ensure unique responses if not already there
-            val timestampedReply = if (!finalReplyMessage.contains("(ID:")) {
-                "$finalReplyMessage (ID: ${System.currentTimeMillis() % 10000})"
-            } else {
-                finalReplyMessage
-            }
-            
             // Fill the bundle with the reply text
             for (remoteInput in remoteInputs) {
-                resultBundle.putCharSequence(remoteInput.resultKey, timestampedReply)
+                resultBundle.putCharSequence(remoteInput.resultKey, replyMessage)
                 Log.e(TAG, "📝 Adding reply to RemoteInput with key: ${remoteInput.resultKey}")
             }
             
@@ -883,17 +857,21 @@ class RcsNotificationListener : NotificationListenerService() {
             
             // Execute the action
             try {
+                Log.e(TAG, "📤 Sending MLC LLM auto-reply")
                 replyAction.actionIntent.send(this, 0, resultIntent)
-                Log.e(TAG, "✅✅✅ Auto-reply sent successfully! ✅✅✅")
+                Log.e(TAG, "✅✅✅ MLC LLM auto-reply sent successfully! ✅✅✅")
                 
                 // Log this auto-reply
-                rcsManager.addLogEntry(sender, originalMessage, timestampedReply, true, true) // Always mark as LLM
+                rcsManager.addLogEntry(sender, originalMessage, replyMessage, true, true) // Always mark as LLM
+                Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY SENT SUCCESSFULLY 🧠🧠🧠")
             } catch (e: Exception) {
-                Log.e(TAG, "❌❌❌ Failed to send auto-reply: ${e.message}", e)
+                Log.e(TAG, "❌❌❌ Failed to send MLC LLM auto-reply: ${e.message}", e)
                 rcsManager.addLogEntry(sender, originalMessage, "Failed: ${e.message}", false, false)
+                Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY FAILED 🧠🧠🧠")
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌❌❌ Error in sendAutoReply: ${e.message}", e)
+            Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ERROR 🧠🧠��")
         }
     }
     

@@ -12,6 +12,8 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import java.util.*
+import android.app.PendingIntent
+import android.os.Build
 
 /**
  * BroadcastReceiver to handle call events even when the app is killed
@@ -115,33 +117,74 @@ class CallReceiver : BroadcastReceiver() {
         }
 
         try {
-            val sharedPrefs = context.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val aiEnabled = sharedPrefs.getBoolean(AI_SMS_ENABLED_KEY, false)
+            Log.d(TAG, "📞 Sending static missed call SMS to $phoneNumber")
             
-            // Get the appropriate message
-            val message = 
-                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "Thanks for your call. I'll respond to your specific query as soon as possible. (ID: AUTO)") ?: DEFAULT_MESSAGE
+            // Always use the static message for missed calls
+            val message = "I missed your call. I'll get back to you as soon as possible."
             
             val smsManager = SmsManager.getDefault()
             
             // Split message if it's too long
             val parts = smsManager.divideMessage(message)
             
-            // Send SMS
-            if (parts.size > 1) {
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+            // Add FLAG_IMMUTABLE for Android 12+ compatibility
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             } else {
-                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                PendingIntent.FLAG_UPDATE_CURRENT
             }
             
-            Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
+            // Prepare PendingIntent for SMS
+            val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
+            val sentPI = PendingIntent.getBroadcast(context, 0, sentIntent, pendingIntentFlags)
+            
+            // Send SMS
+            if (parts.size > 1) {
+                // Create PendingIntent array for multipart SMS
+                val sentIntents = ArrayList<PendingIntent>().apply {
+                    repeat(parts.size) { i ->
+                        add(PendingIntent.getBroadcast(context, i, sentIntent, pendingIntentFlags))
+                    }
+                }
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, null)
+            } else {
+                smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
+            }
+            
+            Log.d(TAG, "✅ Missed call SMS sent successfully to $phoneNumber")
+            
+            // Store the number for tracking
+            storeMissedCallNumber(context, phoneNumber)
             
             // Save to history in shared preferences
             saveSmsToHistory(context, phoneNumber, message, true)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)
+            Log.e(TAG, "❌ Error sending SMS for missed call: ${e.message}", e)
             saveSmsToHistory(context, phoneNumber, DEFAULT_MESSAGE, false, e.message)
+        }
+    }
+    
+    /**
+     * Store the missed call number for tracking
+     */
+    private fun storeMissedCallNumber(context: Context, phoneNumber: String) {
+        try {
+            val sharedPrefs = context.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val missedCallNumbers = sharedPrefs.getStringSet("missedCallNumbers", HashSet()) ?: HashSet()
+            
+            // Add timestamp to track when the missed call happened
+            val timestamp = System.currentTimeMillis()
+            val newMissedCallNumbers = HashSet(missedCallNumbers)
+            
+            newMissedCallNumbers.add("$phoneNumber:$timestamp")
+            
+            // Save the updated set
+            sharedPrefs.edit().putStringSet("missedCallNumbers", newMissedCallNumbers).apply()
+            
+            Log.d(TAG, "📞 Stored missed call number for auto-reply tracking: $phoneNumber")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error storing missed call number: ${e.message}")
         }
     }
 

@@ -173,22 +173,36 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
      */
     suspend fun generateAnswer(question: String, context: String? = null, temperature: Float = 0.7f): String {
         return withContext(Dispatchers.IO) {
+            Log.e(TAG, "🧠🧠🧠 START: MLC LLM generateAnswer 🧠🧠🧠")
+            Log.e(TAG, "🧠 Question: $question")
+            Log.e(TAG, "🧠 Temperature: $temperature")
+            
+            val startTime = System.currentTimeMillis()
+            
             if (!isModelLoaded.get()) {
                 Log.e(TAG, "❌ Model not loaded, initializing now...")
                 initialize()
+                if (!isModelLoaded.get()) {
+                    Log.e(TAG, "❌ Failed to initialize model")
+                    Log.e(TAG, "🧠🧠🧠 END: MLC LLM generateAnswer - FAILED (initialization) 🧠🧠🧠")
+                    return@withContext "I'm unable to process your request at this time due to a technical issue."
+                }
             }
             
             try {
-                Log.e(TAG, "🤔 Generating answer for: $question")
-                
                 // Check if documents exist and include them in the context
                 val documentsDir = File(reactContext.filesDir, "documents")
                 var documentText = ""
+                
                 if (documentsDir.exists()) {
                     val documentFiles = documentsDir.listFiles()
                     if (documentFiles != null && documentFiles.isNotEmpty()) {
                         Log.e(TAG, "📚 Found ${documentFiles.size} documents to include in response")
+                        val docStartTime = System.currentTimeMillis()
                         documentText = extractDocumentContents(documentFiles)
+                        val docEndTime = System.currentTimeMillis()
+                        Log.e(TAG, "⏱️ Document extraction took ${docEndTime - docStartTime} ms")
+                        Log.e(TAG, "📚 Extracted ${documentText.length} characters from documents")
                     } else {
                         Log.e(TAG, "❌ No document files found in ${documentsDir.absolutePath}")
                     }
@@ -198,61 +212,85 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                 
                 // Format the context with document content
                 val enhancedContext = if (!context.isNullOrBlank()) {
+                    Log.e(TAG, "📝 Using provided context (${context.length} chars) with document content")
                     if (documentText.isNotEmpty()) {
-                        "$context\n\nDocument Content:\n$documentText"
+                        "$documentText\n\n$context"
                     } else {
                         context
                     }
                 } else if (documentText.isNotEmpty()) {
-                    "Document Content:\n$documentText"
+                    Log.e(TAG, "📝 Using only document content as context")
+                    documentText
                 } else {
-                    ""
+                    Log.e(TAG, "⚠️ No context or document content available")
+                    null
                 }
                 
-                // Format the full prompt
-                val prompt = if (enhancedContext.isNotEmpty()) {
-                    "Based on the following information:\n\n$enhancedContext\n\nQuestion: $question"
-                } else {
-                    question
+                if (enhancedContext != null) {
+                    Log.e(TAG, "📝 Final context size: ${enhancedContext.length} characters")
+                    
+                    // Count documents in context
+                    val docCount = enhancedContext.split("--- Document:").size - 1
+                    Log.e(TAG, "📚 Document count in context: $docCount")
                 }
                 
-                Log.e(TAG, "📝 Using enhanced prompt with document content")
-                return@withContext fallbackGenerate(question, enhancedContext)
+                // Use our fallback generator for document-based responses
+                Log.e(TAG, "🧠 Generating response using document-based approach")
+                val responseStartTime = System.currentTimeMillis()
+                val response = fallbackGenerate(question, enhancedContext)
+                val responseEndTime = System.currentTimeMillis()
+                
+                Log.e(TAG, "⏱️ Response generation took ${responseEndTime - responseStartTime} ms")
+                Log.e(TAG, "✅ Generated response (${response.length} chars)")
+                
+                val endTime = System.currentTimeMillis()
+                Log.e(TAG, "⏱️ Total MLC LLM operation took ${endTime - startTime} ms")
+                Log.e(TAG, "🧠🧠🧠 END: MLC LLM generateAnswer - SUCCESS 🧠🧠🧠")
+                
+                return@withContext response
+                
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error generating answer", e)
-                return@withContext "I apologize, but I encountered a technical issue. Based on what I know about ${extractMainTopic(question)}, I'll try to provide a helpful response next time."
+                Log.e(TAG, "❌ Error generating answer: ${e.message}")
+                e.printStackTrace()
+                
+                // Provide a fallback response
+                Log.e(TAG, "⚠️ Using fallback response due to error")
+                Log.e(TAG, "🧠🧠🧠 END: MLC LLM generateAnswer - EXCEPTION 🧠🧠🧠")
+                return@withContext "I'm unable to process your request at this time due to a technical issue."
             }
         }
     }
     
     /**
-     * Extract content from document files
+     * Extract document contents from provided files
      */
     private fun extractDocumentContents(files: Array<File>): String {
+        Log.e(TAG, "📚📚📚 START: Extracting document contents from ${files.size} files 📚📚📚")
+        val startTime = System.currentTimeMillis()
+        
         val builder = StringBuilder()
+        var successCount = 0
+        var totalChars = 0
         
         try {
-            // Check if we should skip file creation
-            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
-            
-            for (file in files) {
-                if (file.isFile) {
-                    Log.e(TAG, "📄 Reading document: ${file.name} (${file.length()} bytes)")
-                    
+            // Process each document file
+            files.forEachIndexed { index, file ->
+                if (file.isFile && file.name.endsWith(".txt")) {
                     try {
-                        // If it's a default file and we shouldn't create test docs, skip it
-                        if (!shouldCreateTestDocs && 
-                            (file.name == "pricing_info.txt" || 
-                             file.name == "faq.txt" || 
-                             file.name == "sample_document.txt")) {
-                            Log.e(TAG, "📝 Skipping default document: ${file.name} (disabled in preferences)")
-                            continue
+                        Log.e(TAG, "📚 Processing document ${index+1}/${files.size}: ${file.name}")
+                        
+                        // Skip empty files
+                        if (file.length() == 0L) {
+                            Log.e(TAG, "⚠️ Skipping empty document: ${file.name}")
+                            return@forEachIndexed
                         }
                         
                         // Read all text from the file
                         val content = file.readText()
-                        val contentSummary = if (content.length > 200) {
+                        val contentLength = content.length
+                        totalChars += contentLength
+                        
+                        val contentSummary = if (contentLength > 200) {
                             content.substring(0, 200) + "... (truncated)"
                         } else {
                             content
@@ -262,18 +300,33 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                         builder.append(content)
                         builder.append("\n\n")
                         
-                        Log.e(TAG, "📝 Added document: ${file.name}, length: ${content.length} chars, preview: $contentSummary")
+                        successCount++
+                        Log.e(TAG, "📝 Added document: ${file.name}, length: ${contentLength} chars, preview: $contentSummary")
                     } catch (e: Exception) {
                         Log.e(TAG, "❌ Error reading document ${file.name}: ${e.message}")
+                        e.printStackTrace()
                         builder.append("--- ERROR: Failed to read document ${file.name} ---\n")
                     }
+                } else {
+                    Log.e(TAG, "⚠️ Skipping non-text file: ${file.name}")
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error extracting document contents: ${e.message}")
+            e.printStackTrace()
         }
         
-        return builder.toString()
+        val result = builder.toString()
+        val endTime = System.currentTimeMillis()
+        
+        Log.e(TAG, "📊 Document extraction summary:")
+        Log.e(TAG, "   • Total files processed: ${files.size}")
+        Log.e(TAG, "   • Successfully extracted: $successCount")
+        Log.e(TAG, "   • Total characters: $totalChars")
+        Log.e(TAG, "   • Processing time: ${endTime - startTime} ms")
+        
+        Log.e(TAG, "📚📚📚 END: Document extraction complete 📚📚📚")
+        return result
     }
     
     /**
@@ -292,13 +345,19 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
      * Purely based on document content without any static responses
      */
     private fun fallbackGenerate(question: String, context: String?): String {
-        Log.d(TAG, "📝 Using intelligent document-based generation for: $question")
+        Log.e(TAG, "🧠🧠🧠 START: Fallback document-based generation 🧠🧠🧠")
+        Log.e(TAG, "🧠 Question: $question")
+        Log.e(TAG, "🧠 Context available: ${!context.isNullOrBlank()}")
+        
+        val startTime = System.currentTimeMillis()
         
         // First try to extract something useful from the context if available
         if (!context.isNullOrBlank()) {
             // Break the context into paragraphs for analysis
             val paragraphs = context.split("\\n\\n")
                 .filter { it.isNotBlank() && it.length > 20 }
+            
+            Log.e(TAG, "📝 Found ${paragraphs.size} paragraphs in context")
             
             if (paragraphs.isNotEmpty()) {
                 // Extract keywords from the question
@@ -307,8 +366,11 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                     .filter { it.length > 3 }
                     .toSet()
                 
+                Log.e(TAG, "🔑 Extracted ${keywords.size} keywords from question: ${keywords.joinToString(", ")}")
+                
                 if (keywords.isNotEmpty()) {
                     // Score paragraphs by keyword matching
+                    Log.e(TAG, "🔍 Scoring paragraphs by keyword relevance")
                     val scoredParagraphs = paragraphs.map { paragraph ->
                         val paragraphLower = paragraph.lowercase()
                         val score: Int = keywords.sumOfInt { keyword ->
@@ -335,8 +397,10 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                         .take(2)
                         .map { it.first }
                     
+                    Log.e(TAG, "📊 Found ${relevantParagraphs.size} relevant paragraphs with non-zero scores")
+                    
                     if (relevantParagraphs.isNotEmpty()) {
-                        Log.d(TAG, "✅ Found ${relevantParagraphs.size} relevant paragraphs for the question")
+                        Log.e(TAG, "✅ Using relevant paragraphs to construct response")
                         
                         // Check for specific types of questions
                         val questionLower = question.lowercase()
@@ -355,36 +419,55 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                                                 questionLower.contains("manage") ||
                                                 questionLower.contains("cure")
                         
+                        // Log the question type
+                        Log.e(TAG, "❓ Question type: ${
+                            when {
+                                isDefinitionQuestion -> "Definition"
+                                isDiagnosticQuestion -> "Diagnostic"
+                                isTreatmentQuestion -> "Treatment"
+                                else -> "General"
+                            }
+                        }")
+                        
                         // Construct a response based on question type
                         val response = StringBuilder()
                         
                         if (isDefinitionQuestion) {    
                             // Try to find a definition-like sentence
+                            Log.e(TAG, "🔍 Looking for definition sentences")
                             val definitionSentence = findDefinitionSentence(relevantParagraphs, keywords)
                             if (definitionSentence != null) {
+                                Log.e(TAG, "✅ Found definition sentence")
                                 response.append(definitionSentence)
                             } else {
+                                Log.e(TAG, "⚠️ No definition sentence found, using first relevant paragraph")
                                 response.append(relevantParagraphs[0])
                             }
                         } else if (isDiagnosticQuestion) {
                             response.append("According to the diagnostic information in your documents, ")
                             
                             // Try to find bullet points or criteria
+                            Log.e(TAG, "🔍 Looking for diagnostic criteria or bullet points")
                             val criteriaText = findCriteriaOrBulletPoints(relevantParagraphs)
                             if (criteriaText != null) {
+                                Log.e(TAG, "✅ Found diagnostic criteria text")
                                 response.append(criteriaText)
                             } else {
+                                Log.e(TAG, "⚠️ No specific criteria found, using first relevant paragraph")
                                 response.append(relevantParagraphs[0])
                             }
                         } else if (isTreatmentQuestion) {
                             response.append("The treatment information in your documents indicates that ")
+                            Log.e(TAG, "🏥 Using treatment-focused response")
                             response.append(relevantParagraphs[0])
                         } else {
                             response.append("Based on the content of your documents, ")
+                            Log.e(TAG, "📄 Using general document-based response")
                             response.append(relevantParagraphs[0])
                             
                             // Add a second paragraph if available and not too long
                             if (relevantParagraphs.size > 1 && response.length + relevantParagraphs[1].length < 500) {
+                                Log.e(TAG, "➕ Adding second relevant paragraph to response")
                                 response.append(" ")
                                 response.append(relevantParagraphs[1])
                             }
@@ -400,35 +483,113 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
                             finalResponse += "."
                         }
                         
+                        val endTime = System.currentTimeMillis()
+                        Log.e(TAG, "⏱️ Fallback generation took ${endTime - startTime} ms")
+                        Log.e(TAG, "✅ Generated response (${finalResponse.length} chars)")
+                        Log.e(TAG, "🧠🧠🧠 END: Fallback document-based generation - SUCCESS 🧠🧠🧠")
+                        
                         return finalResponse
+                    } else {
+                        Log.e(TAG, "⚠️ No relevant paragraphs found")
                     }
+                } else {
+                    Log.e(TAG, "⚠️ No keywords extracted from question")
                 }
+            } else {
+                Log.e(TAG, "⚠️ No usable paragraphs found in context")
             }
+        } else {
+            Log.e(TAG, "⚠️ No context provided")
         }
         
         // If we reach here, we couldn't find any relevant content
         // We'll create a response based on what documents we know about
+        Log.e(TAG, "🔍 Attempting to extract document references")
         val documentsInfo = extractDocumentReferences(context)
         if (documentsInfo.isNotEmpty()) {
-            return "I've analyzed your documents ${documentsInfo}, but couldn't find specific information about ${extractMainTopic(question)}. Please try asking about a different topic covered in your documents."
+            Log.e(TAG, "📚 Found document references: $documentsInfo")
+            val topic = extractMainTopic(question)
+            Log.e(TAG, "📌 Main topic extracted: $topic")
+            
+            val response = "I've analyzed your documents ${documentsInfo}, but couldn't find specific information about ${topic}. Please try asking about a different topic covered in your documents."
+            
+            val endTime = System.currentTimeMillis()
+            Log.e(TAG, "⏱️ Fallback generation took ${endTime - startTime} ms")
+            Log.e(TAG, "✅ Generated document reference response (${response.length} chars)")
+            Log.e(TAG, "🧠🧠🧠 END: Fallback document-based generation - PARTIAL SUCCESS 🧠🧠🧠")
+            
+            return response
         }
         
         // Absolute fallback that doesn't mention any specific topics
-        return "I need more information to answer your question properly. Please upload documents containing relevant information about ${extractMainTopic(question)}."
+        val topic = extractMainTopic(question)
+        Log.e(TAG, "📌 Main topic extracted: $topic")
+        
+        val response = "I need more information to answer your question properly. Please upload documents containing relevant information about ${topic}."
+        
+        val endTime = System.currentTimeMillis()
+        Log.e(TAG, "⏱️ Fallback generation took ${endTime - startTime} ms")
+        Log.e(TAG, "⚠️ Using absolute fallback response")
+        Log.e(TAG, "🧠🧠🧠 END: Fallback document-based generation - FALLBACK 🧠🧠🧠")
+        
+        return response
     }
     
     /**
      * Extract document references from context if available
      */
     private fun extractDocumentReferences(context: String?): String {
-        if (context == null) return ""
+        Log.e(TAG, "📚 START: Extracting document references")
+        
+        if (context == null) {
+            Log.e(TAG, "⚠️ Context is null, no document references to extract")
+            Log.e(TAG, "📚 END: Document references extraction - NULL CONTEXT")
+            return ""
+        }
+        
+        if (context.isBlank()) {
+            Log.e(TAG, "⚠️ Context is blank, no document references to extract")
+            Log.e(TAG, "📚 END: Document references extraction - BLANK CONTEXT")
+            return ""
+        }
+        
+        Log.e(TAG, "🔍 Searching for document names in context (${context.length} chars)")
         
         // Try to find document names in the context
         val docPattern = Regex("Document \\d+: ([^\\n]+)")
         val matches = docPattern.findAll(context)
         val docNames = matches.map { it.groupValues[1] }.toList()
         
-        return if (docNames.isNotEmpty()) {
+        if (docNames.isEmpty()) {
+            // Try alternative pattern for document names
+            Log.e(TAG, "⚠️ No document names found with primary pattern, trying alternative pattern")
+            val altPattern = Regex("--- Document: ([^\\n-]+) ---")
+            val altMatches = altPattern.findAll(context)
+            val altDocNames = altMatches.map { it.groupValues[1] }.toList()
+            
+            if (altDocNames.isNotEmpty()) {
+                Log.e(TAG, "✅ Found ${altDocNames.size} document names with alternative pattern")
+                val namesList = altDocNames.take(3).joinToString(", ")
+                
+                val result = if (altDocNames.size > 3) {
+                    "($namesList and ${altDocNames.size - 3} more)"
+                } else {
+                    "($namesList)"
+                }
+                
+                Log.e(TAG, "📚 Document references: $result")
+                Log.e(TAG, "📚 END: Document references extraction - SUCCESS (alternative)")
+                return result
+            } else {
+                Log.e(TAG, "⚠️ No document names found with either pattern")
+                Log.e(TAG, "📚 END: Document references extraction - NO MATCHES")
+                return ""
+            }
+        }
+        
+        Log.e(TAG, "✅ Found ${docNames.size} document names: ${docNames.joinToString(", ")}")
+        
+        val result = if (docNames.isNotEmpty()) {
             val namesList = docNames.take(3).joinToString(", ")
             if (docNames.size > 3) {
                 "($namesList and ${docNames.size - 3} more)"
@@ -438,68 +599,112 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         } else {
             ""
         }
+        
+        Log.e(TAG, "📚 Document references: $result")
+        Log.e(TAG, "📚 END: Document references extraction - SUCCESS")
+        return result
     }
     
     /**
      * Extract the main topic from a question
      */
     private fun extractMainTopic(question: String): String {
+        Log.e(TAG, "🔍 START: Extracting main topic from question")
+        Log.e(TAG, "🔍 Original question: $question")
+        
+        if (question.isBlank()) {
+            Log.e(TAG, "⚠️ Question is blank, using default topic")
+            Log.e(TAG, "🔍 END: Topic extraction - BLANK QUESTION")
+            return "your inquiry"
+        }
+        
+        // Clean up the question by removing common question prefixes
         val cleanQuestion = question.lowercase()
             .replace(Regex("^(what|how|when|where|who|why)\\s+(is|are|were|was|do|does|did)\\s+"), "")
             .replace(Regex("^(can|could)\\s+you\\s+tell\\s+me\\s+(about|what|how)\\s+"), "")
             .replace(Regex("\\?$"), "")
             .trim()
+            
+        Log.e(TAG, "🧹 Cleaned question: $cleanQuestion")
         
         // For definition questions, extract the term being defined
-        if (cleanQuestion.contains("what is ")) {
-            return cleanQuestion.substringAfter("what is ").trim()
+        if (question.lowercase().contains("what is ")) {
+            val topic = cleanQuestion.substringAfter("what is ").trim()
+            Log.e(TAG, "📌 Extracted definition topic: $topic")
+            Log.e(TAG, "🔍 END: Topic extraction - DEFINITION QUESTION")
+            return topic
         }
         
         // For diagnostic criteria questions
         if (cleanQuestion.contains("diagnostic criteria for ")) {
-            return cleanQuestion.substringAfter("diagnostic criteria for ").trim()
+            val topic = cleanQuestion.substringAfter("diagnostic criteria for ").trim()
+            Log.e(TAG, "📌 Extracted diagnostic topic: $topic")
+            Log.e(TAG, "🔍 END: Topic extraction - DIAGNOSTIC QUESTION")
+            return topic
         }
         
         // For treatment questions
         if (cleanQuestion.contains("treatment for ")) {
-            return cleanQuestion.substringAfter("treatment for ").trim()
+            val topic = cleanQuestion.substringAfter("treatment for ").trim()
+            Log.e(TAG, "📌 Extracted treatment topic: $topic")
+            Log.e(TAG, "🔍 END: Topic extraction - TREATMENT QUESTION")
+            return topic
         }
         
         // For general questions, use the first few words
         val words = cleanQuestion.split(" ")
-        return if (words.size > 3) {
+        val topic = if (words.size > 3) {
             words.take(4).joinToString(" ")
         } else {
             cleanQuestion
         }
+        
+        Log.e(TAG, "📌 Extracted general topic: $topic")
+        Log.e(TAG, "🔍 END: Topic extraction - GENERAL QUESTION")
+        return topic
     }
     
     /**
-     * Find a definition-like sentence in paragraphs
+     * Find sentences that define concepts in paragraphs
      */
     private fun findDefinitionSentence(paragraphs: List<String>, keywords: Set<String>): String? {
+        Log.e(TAG, "🔍 START: Looking for definition sentences")
+        Log.e(TAG, "🔍 Searching through ${paragraphs.size} paragraphs with ${keywords.size} keywords")
+        
         // Look for sentences that define concepts
-        for (paragraph in paragraphs) {
+        for ((paragraphIndex, paragraph) in paragraphs.withIndex()) {
             val sentences = paragraph.split(Regex("(?<=[.!?])\\s+"))
+            Log.e(TAG, "🔍 Paragraph ${paragraphIndex+1}: ${sentences.size} sentences")
             
-            for (sentence in sentences) {
+            for ((sentenceIndex, sentence) in sentences.withIndex()) {
                 val sentenceLower = sentence.lowercase()
                 
                 // Check for definition patterns
                 for (keyword in keywords) {
-                    if (sentenceLower.contains("$keyword is ") || 
-                        sentenceLower.contains("$keyword are ") ||
-                        sentenceLower.contains("$keyword refers to") ||
-                        sentenceLower.contains("$keyword means") ||
-                        sentenceLower.contains("definition of $keyword") ||
-                        sentenceLower.contains("defined as")) {
-                        
-                        return sentence
+                    // Check various definition patterns
+                    val patterns = listOf(
+                        "$keyword is ",
+                        "$keyword are ",
+                        "$keyword refers to",
+                        "$keyword means",
+                        "definition of $keyword",
+                        "defined as"
+                    )
+                    
+                    for (pattern in patterns) {
+                        if (sentenceLower.contains(pattern)) {
+                            Log.e(TAG, "✅ Found definition sentence for keyword '$keyword' with pattern '$pattern'")
+                            Log.e(TAG, "✅ Definition: $sentence")
+                            Log.e(TAG, "🔍 END: Successfully found definition sentence")
+                            return sentence
+                        }
                     }
                 }
             }
         }
         
+        Log.e(TAG, "⚠️ No definition sentences found in any paragraph")
+        Log.e(TAG, "🔍 END: Definition sentence search failed")
         return null
     }
     
@@ -507,28 +712,45 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
      * Find criteria or bullet points in paragraphs
      */
     private fun findCriteriaOrBulletPoints(paragraphs: List<String>): String? {
+        Log.e(TAG, "🔍 START: Looking for criteria or bullet points")
+        Log.e(TAG, "🔍 Searching through ${paragraphs.size} paragraphs")
+        
         // Look for bullet points or numbered lists
-        for (paragraph in paragraphs) {
-            if (paragraph.contains("•") || 
-                paragraph.contains("* ") ||
-                paragraph.contains("\n- ") ||
-                paragraph.contains("\n1. ") ||
-                paragraph.contains("\n2. ")) {
-                
-                return paragraph
+        for ((paragraphIndex, paragraph) in paragraphs.withIndex()) {
+            Log.e(TAG, "🔍 Checking paragraph ${paragraphIndex+1} (${paragraph.length} chars)")
+            
+            // Check for bullet point markers
+            val bulletMarkers = listOf("•", "* ", "\n- ", "\n1. ", "\n2. ")
+            for (marker in bulletMarkers) {
+                if (paragraph.contains(marker)) {
+                    Log.e(TAG, "✅ Found bullet point marker '$marker' in paragraph")
+                    Log.e(TAG, "✅ Bullet point paragraph: ${paragraph.take(50)}...")
+                    Log.e(TAG, "🔍 END: Successfully found bullet points")
+                    return paragraph
+                }
             }
             
             // Check for criteria keywords
             val paragraphLower = paragraph.lowercase()
-            if (paragraphLower.contains("criteria") || 
-                paragraphLower.contains("diagnosed when") ||
-                paragraphLower.contains("diagnosis requires") ||
-                paragraphLower.contains("symptoms include")) {
-                
-                return paragraph
+            val criteriaKeywords = listOf(
+                "criteria", 
+                "diagnosed when",
+                "diagnosis requires",
+                "symptoms include"
+            )
+            
+            for (criteriaKeyword in criteriaKeywords) {
+                if (paragraphLower.contains(criteriaKeyword)) {
+                    Log.e(TAG, "✅ Found criteria keyword '$criteriaKeyword' in paragraph")
+                    Log.e(TAG, "✅ Criteria paragraph: ${paragraph.take(50)}...")
+                    Log.e(TAG, "🔍 END: Successfully found criteria text")
+                    return paragraph
+                }
             }
         }
         
+        Log.e(TAG, "⚠️ No criteria or bullet points found in any paragraph")
+        Log.e(TAG, "🔍 END: Criteria/bullet points search failed")
         return null
     }
     

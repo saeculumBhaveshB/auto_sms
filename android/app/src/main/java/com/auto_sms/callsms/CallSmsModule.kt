@@ -403,7 +403,9 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
         
         // We'll use the default message for missed calls
         try {
-            // Use a static message for missed calls
+            Log.d(TAG, "📞 Sending static missed call SMS to $phoneNumber")
+            
+            // Use a static message for missed calls only
             val smsMessage = "I missed your call. I'll get back to you as soon as possible."
             val smsManager = SmsManager.getDefault()
             
@@ -421,7 +423,7 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             val sentIntent = Intent("android.provider.Telephony.SMS_SENT")
             val sentPI = PendingIntent.getBroadcast(reactApplicationContext, 0, sentIntent, pendingIntentFlags)
             
-            Log.d(TAG, "Sending SMS to $phoneNumber for a missed call")
+            Log.d(TAG, "Sending missed call SMS to $phoneNumber")
             
             // Send SMS
             if (parts.size > 1) {
@@ -447,9 +449,12 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             // Emit event
             sendEvent("onSmsSent", eventData)
             
-            Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
+            // Store the missed call number for potential auto-reply tracking
+            storeMissedCallNumber(phoneNumber)
+            
+            Log.d(TAG, "✅ Missed call SMS sent successfully to $phoneNumber")
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending SMS for missed call: ${e.message}")
+            Log.e(TAG, "❌ Error sending SMS for missed call: ${e.message}")
             
             // Create data for event
             val eventData = Arguments.createMap().apply {
@@ -462,6 +467,31 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             
             // Emit event
             sendEvent("onSmsError", eventData)
+        }
+    }
+    
+    /**
+     * Store the missed call number for tracking
+     */
+    private fun storeMissedCallNumber(phoneNumber: String) {
+        try {
+            val sharedPrefs = reactApplicationContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
+            val missedCallNumbers = sharedPrefs.getStringSet("missedCallNumbers", HashSet()) ?: HashSet()
+            
+            // Add timestamp to track when the missed call happened
+            val timestamp = System.currentTimeMillis()
+            val newMissedCallNumbers = HashSet(missedCallNumbers)
+            
+            newMissedCallNumbers.add("$phoneNumber:$timestamp")
+            
+            // Save the updated set
+            sharedPrefs.edit().putStringSet("missedCallNumbers", newMissedCallNumbers).apply()
+            
+            // Verify it was saved correctly
+            val updatedSet = sharedPrefs.getStringSet("missedCallNumbers", HashSet()) ?: HashSet()
+            Log.d(TAG, "📞 Stored missed call number for auto-reply tracking: $phoneNumber (total: ${updatedSet.size})")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error storing missed call number: ${e.message}")
         }
     }
 

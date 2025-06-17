@@ -248,12 +248,10 @@ class CallLogCheckService : Service() {
      */
     private fun sendSmsForMissedCall(phoneNumber: String) {
         try {
-            // Check if AI mode is enabled
-            val aiEnabled = sharedPrefs.getBoolean(AI_SMS_ENABLED_KEY, false)
+            Log.d(TAG, "📞 Sending static missed call SMS to $phoneNumber")
             
-            // Get the appropriate message
-            val message = 
-                sharedPrefs.getString(INITIAL_SMS_MESSAGE_KEY, "Thanks for your call. I'll respond to your specific query as soon as possible. (ID: AUTO)") ?: DEFAULT_MESSAGE
+            // Always use the static message for missed calls
+            val message = "I missed your call. I'll get back to you as soon as possible."
             
             val smsManager = SmsManager.getDefault()
             
@@ -284,17 +282,17 @@ class CallLogCheckService : Service() {
                 smsManager.sendTextMessage(phoneNumber, null, message, sentPI, null)
             }
             
-            Log.d(TAG, "SMS sent successfully to missed call from $phoneNumber")
+            Log.d(TAG, "✅ Missed call SMS sent successfully to $phoneNumber")
             
-            // Store the number for potential auto-reply
+            // Store the number for tracking
             storeMissedCallNumber(phoneNumber)
             
             // Save to history
             saveSmsToHistory(phoneNumber, message, true)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending SMS for missed call: ${e.message}", e)
-            saveSmsToHistory(phoneNumber, DEFAULT_MESSAGE, false, e.message)
+            Log.e(TAG, "❌ Error sending SMS for missed call: ${e.message}", e)
+            saveSmsToHistory(phoneNumber, "I missed your call. I'll get back to you as soon as possible.", false, e.message)
         }
     }
     
