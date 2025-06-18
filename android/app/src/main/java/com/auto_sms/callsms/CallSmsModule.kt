@@ -2951,4 +2951,78 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
             promise.resolve(true)
         }
     }
+
+    /**
+     * Test RCS SMS reply functionality
+     * This method helps diagnose issues with RCS message replies
+     */
+    @ReactMethod
+    fun testRcsSmsReply(phoneNumber: String, message: String, promise: Promise) {
+        try {
+            Log.e(TAG, "🧪 Starting RCS SMS reply test")
+            
+            // Reset RCS state and set testing rate limits
+            RcsTestHelper.resetRcsState(reactApplicationContext)
+            RcsTestHelper.setTestingRateLimit(reactApplicationContext)
+            
+            // Run the test
+            RcsTestHelper.testRcsMessageHandling(reactApplicationContext, phoneNumber, message)
+            
+            Log.e(TAG, "🧪 RCS SMS reply test initiated")
+            promise.resolve("RCS SMS reply test initiated. Check logs for results.")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in testRcsSmsReply: ${e.message}")
+            promise.reject("TEST_ERROR", "Error testing RCS SMS reply: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Check RCS permissions status
+     */
+    @ReactMethod
+    fun checkRcsPermissions(promise: Promise) {
+        try {
+            Log.e(TAG, "🔑 Checking RCS permissions")
+            val result = Arguments.createMap()
+            
+            // Check notification listener permission
+            val notificationListenerEnabled = RcsPermissionHelper.isNotificationListenerEnabled(reactApplicationContext)
+            result.putBoolean("notificationListenerEnabled", notificationListenerEnabled)
+            
+            // Check if default SMS app
+            val isDefaultSmsApp = RcsPermissionHelper.isDefaultSmsApp(reactApplicationContext)
+            result.putBoolean("isDefaultSmsApp", isDefaultSmsApp)
+            
+            // Overall status
+            result.putBoolean("allPermissionsGranted", notificationListenerEnabled)
+            
+            Log.e(TAG, "🔑 RCS permissions check complete")
+            Log.e(TAG, "   • Notification Listener: $notificationListenerEnabled")
+            Log.e(TAG, "   • Default SMS App: $isDefaultSmsApp")
+            
+            promise.resolve(result)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking RCS permissions: ${e.message}")
+            promise.reject("PERMISSION_ERROR", "Failed to check RCS permissions: ${e.message}")
+        }
+    }
+    
+    /**
+     * Open notification listener settings
+     */
+    @ReactMethod
+    fun openNotificationListenerSettings(promise: Promise) {
+        try {
+            Log.e(TAG, "🔑 Opening notification listener settings")
+            RcsPermissionHelper.openNotificationListenerSettings(reactApplicationContext)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error opening notification listener settings: ${e.message}")
+            promise.reject("SETTINGS_ERROR", "Failed to open notification settings: ${e.message}")
+        }
+    }
+    
+    /**
+     * Test RCS SMS reply functionality
+     */
 } 

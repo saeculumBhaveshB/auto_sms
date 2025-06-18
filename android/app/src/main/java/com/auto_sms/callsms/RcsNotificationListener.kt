@@ -17,6 +17,9 @@ import android.provider.Settings
 import android.content.ComponentName
 import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.ReactApplicationContext
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 
 class RcsNotificationListener : NotificationListenerService() {
     private val TAG = "RcsNotification"
@@ -546,24 +549,87 @@ class RcsNotificationListener : NotificationListenerService() {
             // Same implementation as sendAutoReply but logged as alternative method
             Log.e(TAG, "🔄 Sending alternative auto-reply to $sender: $replyMessage")
             
-            // Similar implementation to sendAutoReply
-            sendAutoReply(action, conversationId, sender, receivedMessage, replyMessage)
+            // CRITICAL FIX: Always send via SMS first to ensure delivery
+            var smsSent = false
+            try {
+                Log.e(TAG, "📱 BACKUP: Sending reply via SMS first")
+                SmsSender.sendSms(applicationContext, sender, replyMessage)
+                Log.e(TAG, "✅ BACKUP: SMS sent successfully")
+                smsSent = true
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ BACKUP: Error sending SMS: ${e.message}")
+                // Continue with alternative action attempt even if SMS fails
+            }
             
-            // Add "using alternative action" to the log entry
-            rcsManager.addLogEntry(
-                sender,
-                receivedMessage,
-                "$replyMessage (using alternative action)",
-                true
-            )
+            // Similar implementation to sendAutoReply
+            try {
+                sendAutoReply(action, conversationId, sender, receivedMessage, replyMessage)
+                
+                // Add "using alternative action" to the log entry
+                rcsManager.addLogEntry(
+                    sender,
+                    receivedMessage,
+                    "$replyMessage (using alternative action)",
+                    true
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error sending alternative auto-reply: ${e.message}")
+                
+                // If alternative action failed but SMS succeeded, we're still good
+                if (smsSent) {
+                    Log.e(TAG, "✅ Alternative action failed but SMS backup succeeded")
+                    rcsManager.addLogEntry(
+                        sender,
+                        receivedMessage,
+                        "$replyMessage (alternative action failed, SMS succeeded)",
+                        true
+                    )
+                } else {
+                    // If both alternative action and SMS failed, try SMS one more time
+                    try {
+                        Log.e(TAG, "🔄 Both alternative action and initial SMS failed, trying SMS one more time")
+                        SmsSender.sendSms(applicationContext, sender, replyMessage)
+                        Log.e(TAG, "✅ Second SMS attempt succeeded")
+                        rcsManager.addLogEntry(
+                            sender,
+                            receivedMessage,
+                            "$replyMessage (via second SMS attempt)",
+                            true
+                        )
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "❌❌❌ Both alternative action and both SMS attempts failed")
+                        rcsManager.addLogEntry(
+                            sender,
+                            receivedMessage,
+                            "Failed: Alternative action: ${e.message}, SMS: ${e2.message}",
+                            false
+                        )
+                    }
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error sending alternative auto-reply: ${e.message}")
-            rcsManager.addLogEntry(
-                sender,
-                receivedMessage,
-                "Failed: Error with alternative reply: ${e.message}",
-                false
-            )
+            Log.e(TAG, "❌ Error in sendAlternativeReply: ${e.message}")
+            
+            // Last resort - try direct SMS
+            try {
+                Log.e(TAG, "🔄 Error in sendAlternativeReply method, trying direct SMS as last resort")
+                SmsSender.sendSms(applicationContext, sender, replyMessage)
+                Log.e(TAG, "✅ Last resort SMS sent successfully")
+                rcsManager.addLogEntry(
+                    sender,
+                    receivedMessage,
+                    "$replyMessage (via last resort SMS)",
+                    true
+                )
+            } catch (e2: Exception) {
+                Log.e(TAG, "❌❌❌ Last resort SMS also failed: ${e2.message}")
+                rcsManager.addLogEntry(
+                    sender,
+                    receivedMessage,
+                    "Failed: All methods failed",
+                    false
+                )
+            }
         }
     }
     
@@ -829,11 +895,37 @@ class RcsNotificationListener : NotificationListenerService() {
             Log.e(TAG, "   • Conversation ID: $conversationId")
             Log.e(TAG, "   • Reply: $replyMessage")
             
+            // CRITICAL FIX: Always send via SMS first to ensure delivery
+            var smsSent = false
+            try {
+                Log.e(TAG, "📱 BACKUP: Sending reply via SMS first")
+                SmsSender.sendSms(applicationContext, sender, replyMessage)
+                Log.e(TAG, "✅ BACKUP: SMS sent successfully")
+                smsSent = true
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ BACKUP: Error sending SMS: ${e.message}")
+                // Continue with RCS attempt even if SMS fails
+            }
+            
             // Create the remote input
             val remoteInputs = replyAction.remoteInputs
             if (remoteInputs.isEmpty()) {
                 Log.e(TAG, "❌ No remote inputs found")
                 rcsManager.addLogEntry(sender, originalMessage, "Failed: No remote inputs", false, false)
+                
+                // CRITICAL FIX: If no remote inputs, try SMS directly
+                if (!smsSent) {
+                    Log.e(TAG, "🔄 No remote inputs, falling back to direct SMS")
+                    try {
+                        SmsSender.sendSms(applicationContext, sender, replyMessage)
+                        Log.e(TAG, "✅ Fallback SMS sent successfully")
+                        rcsManager.addLogEntry(sender, originalMessage, replyMessage + " (via SMS fallback)", true, true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ SMS fallback also failed: ${e.message}")
+                        rcsManager.addLogEntry(sender, originalMessage, "Failed: No remote inputs and SMS fallback failed", false, false)
+                    }
+                }
+                
                 Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ABORTED - NO REMOTE INPUTS 🧠🧠🧠")
                 return
             }
@@ -855,22 +947,52 @@ class RcsNotificationListener : NotificationListenerService() {
             
             RemoteInput.addResultsToIntent(remoteInputs, resultIntent, resultBundle)
             
-            // Execute the action
+            // Execute the RCS action
             try {
-                Log.e(TAG, "📤 Sending MLC LLM auto-reply")
+                Log.e(TAG, "📤 Sending MLC LLM auto-reply via RCS")
                 replyAction.actionIntent.send(this, 0, resultIntent)
-                Log.e(TAG, "✅✅✅ MLC LLM auto-reply sent successfully! ✅✅✅")
+                Log.e(TAG, "✅✅✅ MLC LLM auto-reply sent successfully via RCS! ✅✅✅")
                 
                 // Log this auto-reply
                 rcsManager.addLogEntry(sender, originalMessage, replyMessage, true, true) // Always mark as LLM
                 Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY SENT SUCCESSFULLY 🧠🧠🧠")
             } catch (e: Exception) {
-                Log.e(TAG, "❌❌❌ Failed to send MLC LLM auto-reply: ${e.message}", e)
-                rcsManager.addLogEntry(sender, originalMessage, "Failed: ${e.message}", false, false)
-                Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY FAILED 🧠🧠🧠")
+                Log.e(TAG, "❌❌❌ Failed to send MLC LLM auto-reply via RCS: ${e.message}", e)
+                
+                // If RCS failed but SMS succeeded, we're still good
+                if (smsSent) {
+                    Log.e(TAG, "✅ RCS failed but SMS backup succeeded")
+                    rcsManager.addLogEntry(sender, originalMessage, replyMessage + " (RCS failed, SMS succeeded)", true, true)
+                    Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY SENT VIA SMS BACKUP 🧠🧠🧠")
+                } else {
+                    // If both RCS and SMS failed, try SMS one more time with alternative approach
+                    try {
+                        Log.e(TAG, "🔄 Both RCS and initial SMS failed, trying alternative SMS approach")
+                        SmsSender.sendSmsViaIntent(applicationContext, sender, replyMessage)
+                        Log.e(TAG, "✅ Alternative SMS approach succeeded")
+                        rcsManager.addLogEntry(sender, originalMessage, replyMessage + " (via alternative SMS)", true, true)
+                        Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY SENT VIA ALTERNATIVE SMS 🧠🧠🧠")
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "❌❌❌ All SMS approaches failed: ${e2.message}", e2)
+                        rcsManager.addLogEntry(sender, originalMessage, "Failed: RCS: ${e.message}, SMS: ${e2.message}", false, false)
+                        Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY FAILED 🧠🧠🧠")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌❌❌ Error in sendAutoReply: ${e.message}", e)
+            
+            // Last resort - try direct SMS
+            try {
+                Log.e(TAG, "🔄 Error in main sendAutoReply method, trying direct SMS as last resort")
+                SmsSender.sendSms(applicationContext, sender, replyMessage)
+                Log.e(TAG, "✅ Last resort SMS sent successfully")
+                rcsManager.addLogEntry(sender, originalMessage, replyMessage + " (via last resort SMS)", true, true)
+            } catch (e2: Exception) {
+                Log.e(TAG, "❌❌❌ Last resort SMS also failed: ${e2.message}")
+                rcsManager.addLogEntry(sender, originalMessage, "Failed: All methods failed", false, false)
+            }
+            
             Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ERROR 🧠🧠��")
         }
     }
@@ -1046,13 +1168,67 @@ class RcsNotificationListener : NotificationListenerService() {
                 Log.e(TAG, "❌❌❌ This is why RCS auto-replies are not working!")
                 Log.e(TAG, "ℹ️ User needs to enable notification access in Settings > Apps > Special access > Notification access")
                 
-                // Add code to request notification access if needed
+                // Notify the user about missing permission
+                notifyMissingPermission()
             }
             
             return enabled
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error checking notification listener status: ${e.message}")
             return false
+        }
+    }
+    
+    /**
+     * Notify the user about missing notification listener permission
+     */
+    private fun notifyMissingPermission() {
+        try {
+            // Create a notification to inform the user
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Create notification channel for Android O and above
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    "rcs_permission_channel",
+                    "RCS Permissions",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
+                channel.description = "Notifications about required permissions"
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            // Create intent to open notification listener settings
+            val settingsIntent = Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            val pendingIntent = PendingIntent.getActivity(
+                applicationContext,
+                0,
+                settingsIntent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+            
+            // Build the notification
+            val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(applicationContext, "rcs_permission_channel")
+            } else {
+                Notification.Builder(applicationContext)
+                    .setPriority(Notification.PRIORITY_HIGH)
+            }
+            
+            val notification = notificationBuilder
+                .setContentTitle("RCS Auto-Reply Not Working")
+                .setContentText("Tap to enable notification access required for RCS auto-replies")
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+            
+            // Show the notification
+            notificationManager.notify(12345, notification)
+            
+            Log.e(TAG, "📲 Displayed notification about missing permission")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error showing permission notification: ${e.message}")
         }
     }
 

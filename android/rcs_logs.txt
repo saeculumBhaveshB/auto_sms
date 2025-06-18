@@ -1,0 +1,234 @@
+--------- beginning of main
+06-18 13:00:53.461 32308 32308 E RcsNotification: 📨📨📨 NOTIFICATION RECEIVED 📨📨📨
+06-18 13:00:53.461 32308 32308 E RcsNotification:    • Package: com.google.android.dialer
+06-18 13:00:53.461 32308 32308 E RcsNotification:    • ID: 1
+06-18 13:00:53.461 32308 32308 E RcsNotification:    • Key: 0|com.google.android.dialer|1|null|10177
+06-18 13:00:53.461 32308 32308 E RcsNotification:    • Post Time: 1750231853240
+06-18 13:00:53.461 32308 32308 E RcsNotification:    • Category: call
+06-18 13:00:53.461 32308 32308 E RcsNotification: 📋📋📋 NOTIFICATION DEBUG INFO 📋📋📋
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Package: com.google.android.dialer
+06-18 13:00:53.461 32308 32308 E RcsNotification: • ID: 1
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Key: 0|com.google.android.dialer|1|null|10177
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Tag: null
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Post Time: 1750231853240
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Category: call
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Group Key: 0|com.google.android.dialer|1|null|10177
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Flags: 234
+06-18 13:00:53.461 32308 32308 E RcsNotification: • Is Group Summary: false
+06-18 13:00:53.462 32308 32308 E RcsNotification: • EXTRAS:
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.title: "‪+91 97129 12982‬"
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.reduced.images: true
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.template: "android.app.Notification$CallStyle"
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.showChronometer: false
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.people.list: [android.app.Person@fe887d94]
+06-18 13:00:53.462 32308 32308 E RcsNotification:   - android.text: "Incoming call"
+06-18 13:00:53.463 32308 32308 E RcsNotification:   - android.appInfo: ApplicationInfo{65fbfc2 com.google.android.dialer}
+06-18 13:00:53.463 32308 32308 E RcsNotification:   - android.callIsVideo: false
+06-18 13:00:53.463 32308 32308 E RcsNotification:   - android.callType: 1
+06-18 13:00:53.463 32308 32308 E RcsNotification:   - android.largeIcon: Icon(typ=BITMAP size=120x120)
+06-18 13:00:53.463 32308 32308 E RcsNotification:   - android.declineIntent: PendingIntent{53df1d3: android.os.BinderProxy@f6a7636}
+06-18 13:00:53.464 32308 32308 E RcsNotification:   - android.callPerson: android.app.Person@fe887d94
+06-18 13:00:53.464 32308 32308 E RcsNotification:   - android.answerIntent: PendingIntent{7407110: android.os.BinderProxy@bcf0ea4}
+06-18 13:00:53.464 32308 32308 E RcsNotification:   - android.colorized: false
+06-18 13:00:53.464 32308 32308 E RcsNotification: • ACTIONS:
+06-18 13:00:53.464 32308 32308 E RcsNotification:   - Action 0: Title="Decline"
+06-18 13:00:53.464 32308 32308 E RcsNotification:   - Action 1: Title="Answer"
+06-18 13:00:53.464 32308 32308 E RcsNotification: ❌ Ignoring notification from non-messaging app: com.google.android.dialer
+06-18 13:01:12.627 32308 32308 E RcsNotification: 📨📨📨 NOTIFICATION RECEIVED 📨📨📨
+06-18 13:01:12.627 32308 32308 E RcsNotification:    • Package: com.google.android.apps.messaging
+06-18 13:01:12.627 32308 32308 E RcsNotification:    • ID: 174344743
+06-18 13:01:12.627 32308 32308 E RcsNotification:    • Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:12.627 32308 32308 E RcsNotification:    • Post Time: 1750231872405
+06-18 13:01:12.627 32308 32308 E RcsNotification:    • Category: service
+06-18 13:01:12.627 32308 32308 E RcsNotification: 📋📋📋 NOTIFICATION DEBUG INFO 📋📋📋
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Package: com.google.android.apps.messaging
+06-18 13:01:12.627 32308 32308 E RcsNotification: • ID: 174344743
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Tag: null
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Post Time: 1750231872405
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Category: service
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Group Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Flags: 354
+06-18 13:01:12.627 32308 32308 E RcsNotification: • Is Group Summary: false
+06-18 13:01:12.627 32308 32308 E RcsNotification: • EXTRAS:
+06-18 13:01:12.627 32308 32308 E RcsNotification:   - android.title: null
+06-18 13:01:12.627 32308 32308 E RcsNotification:   - android.reduced.images: true
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.subText: null
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.template: "android.app.Notification$BigTextStyle"
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.showChronometer: false
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.text: "Messages is doing work in the background"
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.progress: 0
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.progressMax: 0
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.appInfo: ApplicationInfo{ff9851a com.google.android.apps.messaging}
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.showWhen: true
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.largeIcon: null
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.bigText: "Messages is doing work in the background"
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.infoText: null
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.progressIndeterminate: false
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.remoteInputHistory: null
+06-18 13:01:12.628 32308 32308 E RcsNotification:   - android.support.v4.app.extra.COMPAT_TEMPLATE: "androidx.core.app.NotificationCompat$BigTextStyle"
+06-18 13:01:12.628 32308 32308 E RcsNotification: • ACTIONS:
+06-18 13:01:12.629 32308 32308 E RcsNotification:   - No actions
+06-18 13:01:12.629 32308 32308 E RcsNotification: ✅ Notification is from supported messaging app: com.google.android.apps.messaging
+06-18 13:01:12.629 32308 32308 E RcsNotification: 🔍 Processing ALL notifications from Google Messages, category: service
+06-18 13:01:12.629 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: 📨📨📨 GOOGLE MESSAGES NOTIFICATION 📨📨📨
+06-18 13:01:12.629 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Initial extraction - Sender: Unknown Sender, Message: Messages is doing work in the background
+06-18 13:01:12.629 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Final extraction - Sender: Unknown Sender, Message: Messages is doing work in the background, Is RCS: true
+06-18 13:01:12.629 32308 32308 E RcsNotification: 🔍 Analyzing if message is RCS...
+06-18 13:01:12.629 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Checking Google Messages app for RCS indicators
+06-18 13:01:12.629 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Google Messages with content, treating as RCS
+06-18 13:01:12.630 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Is RCS: true
+06-18 13:01:12.630 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Conversation ID: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:12.630 32308 32308 E RcsNotification: 🧠 Processing message with RCS auto-reply manager...
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager: 🧠🧠🧠 RCS PROCESSING MESSAGE 🧠🧠🧠
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager:    • Sender: Unknown Sender
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager:    • Message: Messages is doing work in the background
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager:    • Timestamp: 1750231872630
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager: 🔍 Checking if we've replied recently to Unknown Sender
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager: ✅ First message from this sender, allowing reply
+06-18 13:01:12.630 32308 32308 E RcsAutoReplyManager: 📚 Checking for document-based response first
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📚 START: Generating LLM response with document context
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📚 Sender: Unknown Sender
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📚 Message: Messages is doing work in the background
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 🧠 Attempting to use MLC LLM for document-based response
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 🧠 MLC LLM module not initialized, attempting initialization
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: ❌ Context is not ReactApplicationContext, cannot initialize MLC LLM
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📚 END: Document-based response generation failed - context issue
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📋 Processing 0 rules
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 🧠 Using LLM for dynamic responses
+06-18 13:01:12.631 32308 32308 E RcsAutoReplyManager: 📋 No specific rules matched, using default dynamic response
+06-18 13:01:12.635 32308 32308 E RcsAutoReplyManager: ⚠️ Dynamic response generation failed, no response will be sent
+06-18 13:01:12.635 32308 32308 E RcsNotification: ℹ️ No auto-reply needed for this message
+06-18 13:01:13.142 32308 32308 E RcsNotification: 📨📨📨 NOTIFICATION RECEIVED 📨📨📨
+06-18 13:01:13.142 32308 32308 E RcsNotification:    • Package: com.google.android.apps.messaging
+06-18 13:01:13.142 32308 32308 E RcsNotification:    • ID: 174344743
+06-18 13:01:13.142 32308 32308 E RcsNotification:    • Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:13.142 32308 32308 E RcsNotification:    • Post Time: 1750231872930
+06-18 13:01:13.142 32308 32308 E RcsNotification:    • Category: service
+06-18 13:01:13.142 32308 32308 E RcsNotification: 📋📋📋 NOTIFICATION DEBUG INFO 📋📋📋
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Package: com.google.android.apps.messaging
+06-18 13:01:13.142 32308 32308 E RcsNotification: • ID: 174344743
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Tag: null
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Post Time: 1750231872930
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Category: service
+06-18 13:01:13.142 32308 32308 E RcsNotification: • Group Key: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:13.143 32308 32308 E RcsNotification: • Flags: 354
+06-18 13:01:13.143 32308 32308 E RcsNotification: • Is Group Summary: false
+06-18 13:01:13.143 32308 32308 E RcsNotification: • EXTRAS:
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.title: null
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.reduced.images: true
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.subText: null
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.template: "android.app.Notification$BigTextStyle"
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.showChronometer: false
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.text: "Messages is doing work in the background"
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.progress: 0
+06-18 13:01:13.143 32308 32308 E RcsNotification:   - android.progressMax: 0
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.appInfo: ApplicationInfo{9b95228 com.google.android.apps.messaging}
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.showWhen: true
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.largeIcon: null
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.bigText: "Messages is doing work in the background"
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.infoText: null
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.progressIndeterminate: false
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.remoteInputHistory: null
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - android.support.v4.app.extra.COMPAT_TEMPLATE: "androidx.core.app.NotificationCompat$BigTextStyle"
+06-18 13:01:13.144 32308 32308 E RcsNotification: • ACTIONS:
+06-18 13:01:13.144 32308 32308 E RcsNotification:   - No actions
+06-18 13:01:13.144 32308 32308 E RcsNotification: ✅ Notification is from supported messaging app: com.google.android.apps.messaging
+06-18 13:01:13.144 32308 32308 E RcsNotification: 🔍 Processing ALL notifications from Google Messages, category: service
+06-18 13:01:13.144 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: 📨📨📨 GOOGLE MESSAGES NOTIFICATION 📨📨📨
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Initial extraction - Sender: Unknown Sender, Message: Messages is doing work in the background
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Final extraction - Sender: Unknown Sender, Message: Messages is doing work in the background, Is RCS: true
+06-18 13:01:13.145 32308 32308 E RcsNotification: 🔍 Analyzing if message is RCS...
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Checking Google Messages app for RCS indicators
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Google Messages with content, treating as RCS
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Is RCS: true
+06-18 13:01:13.145 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Conversation ID: 0|com.google.android.apps.messaging|174344743|null|10157
+06-18 13:01:13.145 32308 32308 E RcsNotification: 🧠 Processing message with RCS auto-reply manager...
+06-18 13:01:13.145 32308 32308 E RcsAutoReplyManager: 🧠🧠🧠 RCS PROCESSING MESSAGE 🧠🧠🧠
+06-18 13:01:13.145 32308 32308 E RcsAutoReplyManager:    • Sender: Unknown Sender
+06-18 13:01:13.145 32308 32308 E RcsAutoReplyManager:    • Message: Messages is doing work in the background
+06-18 13:01:13.145 32308 32308 E RcsAutoReplyManager:    • Timestamp: 1750231873145
+06-18 13:01:13.145 32308 32308 E RcsAutoReplyManager: 🔍 Checking if we've replied recently to Unknown Sender
+06-18 13:01:13.146 32308 32308 E RcsAutoReplyManager: ⏱️ Time since last reply: 516ms, Rate limit: 60000ms
+06-18 13:01:13.146 32308 32308 E RcsAutoReplyManager: 🔄 Exact same message detected within 10 seconds, skipping reply
+06-18 13:01:13.146 32308 32308 E RcsAutoReplyManager: ⚠️ Already replied to Unknown Sender recently, skipping
+06-18 13:01:13.146 32308 32308 E RcsNotification: ℹ️ No auto-reply needed for this message
+06-18 13:01:13.931 32308 32308 E RcsNotification: 📨📨📨 NOTIFICATION RECEIVED 📨📨📨
+06-18 13:01:13.931 32308 32308 E RcsNotification:    • Package: com.google.android.apps.messaging
+06-18 13:01:13.931 32308 32308 E RcsNotification:    • ID: 2
+06-18 13:01:13.931 32308 32308 E RcsNotification:    • Key: 0|com.google.android.apps.messaging|2|com.google.android.apps.messaging:incoming_message:49|10157
+06-18 13:01:13.932 32308 32308 E RcsNotification:    • Post Time: 1750231873703
+06-18 13:01:13.932 32308 32308 E RcsNotification:    • Category: msg
+06-18 13:01:13.932 32308 32308 E RcsNotification: 📋📋📋 NOTIFICATION DEBUG INFO 📋📋📋
+06-18 13:01:13.932 32308 32308 E RcsNotification: • Package: com.google.android.apps.messaging
+06-18 13:01:13.932 32308 32308 E RcsNotification: • ID: 2
+06-18 13:01:13.932 32308 32308 E RcsNotification: • Key: 0|com.google.android.apps.messaging|2|com.google.android.apps.messaging:incoming_message:49|10157
+06-18 13:01:13.932 32308 32308 E RcsNotification: • Tag: com.google.android.apps.messaging:incoming_message:49
+06-18 13:01:13.932 32308 32308 E RcsNotification: • Post Time: 1750231873703
+06-18 13:01:13.932 32308 32308 E RcsNotification: • Category: msg
+06-18 13:01:13.933 32308 32308 E RcsNotification: • Group Key: 0|com.google.android.apps.messaging|g:incoming_message_group_key
+06-18 13:01:13.933 32308 32308 E RcsNotification: • Flags: 16
+06-18 13:01:13.933 32308 32308 E RcsNotification: • Is Group Summary: false
+06-18 13:01:13.933 32308 32308 E RcsNotification: • EXTRAS:
+06-18 13:01:13.933 32308 32308 E RcsNotification:   - android.title: "097129 12982"
+06-18 13:01:13.934 32308 32308 E RcsNotification:   - android.hiddenConversationTitle: null
+06-18 13:01:13.934 32308 32308 E RcsNotification:   - android.reduced.images: true
+06-18 13:01:13.935 32308 32308 E RcsNotification:   - extra_im_notification_message_ids: [1323, 1326, 1329, 1332]
+06-18 13:01:13.935 32308 32308 E RcsNotification:   - android.subText: null
+06-18 13:01:13.935 32308 32308 E RcsNotification:   - android.template: "android.app.Notification$MessagingStyle"
+06-18 13:01:13.935 32308 32308 E RcsNotification:   - android.showChronometer: false
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - extra_im_notification_earliest_timestamp: 1750168208855
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - android.text: "He"
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - android.progress: 0
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - android.progressMax: 0
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - android.selfDisplayName: "You"
+06-18 13:01:13.936 32308 32308 E RcsNotification:   - android.conversationUnreadMessageCount: 0
+06-18 13:01:13.937 32308 32308 E RcsNotification:   - android.appInfo: ApplicationInfo{5921ebe com.google.android.apps.messaging}
+06-18 13:01:13.937 32308 32308 E RcsNotification:   - android.messages: Array with 4 items
+06-18 13:01:13.937 32308 32308 E RcsNotification:   - android.showWhen: true
+06-18 13:01:13.937 32308 32308 E RcsNotification:   - android.largeIcon: null
+06-18 13:01:13.937 32308 32308 E RcsNotification:   - android.messagingStyleUser: Bundle with 6 items
+06-18 13:01:13.938 32308 32308 E RcsNotification:   - android.messagingUser: android.app.Person@865aa4e1
+06-18 13:01:13.938 32308 32308 E RcsNotification:   - android.infoText: null
+06-18 13:01:13.938 32308 32308 E RcsNotification:   - android.wearable.EXTENSIONS: Bundle with 1 items
+06-18 13:01:13.938 32308 32308 E RcsNotification:   - extra_im_notification_latest_timestamp: 1750231872462
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - android.progressIndeterminate: false
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - android.remoteInputHistory: null
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - android.support.v4.app.extra.COMPAT_TEMPLATE: "androidx.core.app.NotificationCompat$MessagingStyle"
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - extra_im_notification_conversation_id: "49"
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - android.isGroupConversation: false
+06-18 13:01:13.939 32308 32308 E RcsNotification: • ACTIONS:
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - Action 0: Title="Mark as read"
+06-18 13:01:13.939 32308 32308 E RcsNotification:   - Action 1: Title="Reply"
+06-18 13:01:13.939 32308 32308 E RcsNotification:     · RemoteInput 0: Key="android.intent.extra.TEXT", Label="Reply"
+06-18 13:01:13.939 32308 32308 E RcsNotification: ✅ Notification is from supported messaging app: com.google.android.apps.messaging
+06-18 13:01:13.939 32308 32308 E RcsNotification: 🔍 Processing ALL notifications from Google Messages, category: msg
+06-18 13:01:13.939 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: 📨📨📨 GOOGLE MESSAGES NOTIFICATION 📨📨📨
+06-18 13:01:13.939 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Initial extraction - Sender: 097129 12982, Message: He
+06-18 13:01:13.940 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Final extraction - Sender: 097129 12982, Message: He, Is RCS: true
+06-18 13:01:13.940 32308 32308 E RcsNotification: 🔍 Analyzing if message is RCS...
+06-18 13:01:13.940 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Checking Google Messages app for RCS indicators
+06-18 13:01:13.940 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Google Messages with content, treating as RCS
+06-18 13:01:13.940 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Is RCS: true
+06-18 13:01:13.940 32308 32308 E RcsNotification: LOGTAG_RCS_DETAILS: ↘️ Conversation ID: 0|com.google.android.apps.messaging|2|com.google.android.apps.messaging:incoming_message:49|10157
+06-18 13:01:13.940 32308 32308 E RcsNotification: 🧠 Processing message with RCS auto-reply manager...
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager: 🧠🧠🧠 RCS PROCESSING MESSAGE 🧠🧠🧠
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager:    • Sender: 097129 12982
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager:    • Message: He
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager:    • Timestamp: 1750231873940
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager: 🔍 Checking if we've replied recently to 097129 12982
+06-18 13:01:13.940 32308 32308 E RcsAutoReplyManager: ✅ First message from this sender, allowing reply
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📚 Checking for document-based response first
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📚 START: Generating LLM response with document context
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📚 Sender: 097129 12982
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📚 Message: He
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 🧠 Attempting to use MLC LLM for document-based response
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 🧠 MLC LLM module not initialized, attempting initialization
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: ❌ Context is not ReactApplicationContext, cannot initialize MLC LLM
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📚 END: Document-based response generation failed - context issue
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📋 Processing 0 rules
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 🧠 Using LLM for dynamic responses
+06-18 13:01:13.941 32308 32308 E RcsAutoReplyManager: 📋 No specific rules matched, using default dynamic response
+06-18 13:01:13.943 32308 32308 E RcsAutoReplyManager: ⚠️ Dynamic response generation failed, no response will be sent
+06-18 13:01:13.943 32308 32308 E RcsNotification: ℹ️ No auto-reply needed for this message

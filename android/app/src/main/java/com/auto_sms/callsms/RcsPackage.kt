@@ -15,6 +15,7 @@ class RcsPackage : ReactPackage {
         val modules = ArrayList<NativeModule>()
         modules.add(AutoReplyModule(reactContext))
         modules.add(PermissionsManager(reactContext))
+        modules.add(RcsPermissionsModule(reactContext))
         return modules
     }
 

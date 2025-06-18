@@ -21,7 +21,9 @@ import java.io.FileInputStream
 import com.itextpdf.text.pdf.PdfReader
 import com.itextpdf.text.pdf.parser.PdfTextExtractor
 import com.facebook.react.bridge.WritableMap
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * BroadcastReceiver to handle incoming SMS messages for AI responses
@@ -49,8 +51,35 @@ class SmsReceiver : BroadcastReceiver() {
         // Add extremely visible logging for debugging
         Log.e(TAG, "🚨🚨🚨 SmsReceiver.onReceive() START - Action: ${intent.action} 🚨🚨🚨")
         
+        // Check if this is an RCS message instead of a regular SMS
+        val isRcsMessage = intent.action?.contains("RCS") == true || 
+                          intent.action?.contains("rcs") == true ||
+                          intent.hasExtra("rcs_message")
+        
+        Log.e(TAG, "📱 DIAGNOSTIC - Is RCS message: $isRcsMessage")
+        
+        // Check if this might be an RCS message using the dedicated handler
+        if (RcsMessageHandler.isRcsIntent(intent)) {
+            Log.e(TAG, "🔄 Detected potential RCS message, handling with RcsMessageHandler")
+            GlobalScope.launch(Dispatchers.IO) {
+                RcsMessageHandler.processRcsMessage(context, intent)
+            }
+            return
+        }
+        
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
-            Log.e(TAG, "❌ SmsReceiver - Not an SMS_RECEIVED_ACTION, ignoring")
+            Log.e(TAG, "❌ SmsReceiver - Not an SMS_RECEIVED_ACTION, ignoring. Action: ${intent.action}")
+            // Check if there are any RCS-related extras that we should be handling
+            intent.extras?.let { extras ->
+                Log.e(TAG, "🔍 DIAGNOSTIC - Checking for RCS-related extras in non-SMS intent:")
+                for (key in extras.keySet()) {
+                    val value = extras.get(key)
+                    Log.e(TAG, "   • $key = $value")
+                    if (key.contains("rcs", ignoreCase = true) || (value != null && value.toString().contains("rcs", ignoreCase = true))) {
+                        Log.e(TAG, "⚠️ FOUND RCS-RELATED EXTRA: $key = $value")
+                    }
+                }
+            }
             return
         }
         
@@ -119,6 +148,17 @@ class SmsReceiver : BroadcastReceiver() {
                 Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Display Originating Address: ${smsMessage.displayOriginatingAddress}")
                 Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message Class: ${smsMessage.messageClass}")
                 Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Message ID: ${smsMessage.indexOnIcc}")
+                
+                // Check for RCS indicators in the message
+                val isRcsLike = messageBody.contains("RCS", ignoreCase = true) || 
+                               smsMessage.displayOriginatingAddress?.contains("RCS", ignoreCase = true) == true
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Has RCS indicators: $isRcsLike")
+                
+                // Check if this is from a messaging app that might handle RCS
+                val isFromMessagingApp = phoneNumber.contains("google", ignoreCase = true) || 
+                                        phoneNumber.contains("message", ignoreCase = true) ||
+                                        phoneNumber.contains("rcs", ignoreCase = true)
+                Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Might be from messaging app: $isFromMessagingApp")
                 
                 val isFromMissedCallNumber = wasRecentMissedCallNumber(context, phoneNumber)
                 Log.e(TAG, "LOGTAG_SMS_DETAILS: ↘️ Is from missed call number: $isFromMissedCallNumber")

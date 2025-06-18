@@ -57,6 +57,13 @@
       <receiver android:name="com.auto_sms.callsms.SmsReceiver" android:exported="true">
         <intent-filter android:priority="999">
             <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            <!-- Add potential RCS intent actions -->
+            <action android:name="android.provider.Telephony.WAP_PUSH_RECEIVED" />
+            <action android:name="android.intent.action.DATA_SMS_RECEIVED" />
+            <action android:name="android.provider.Telephony.MMS_RECEIVED" />
+            <action android:name="com.google.android.apps.messaging.SMS_RECEIVED" />
+            <action android:name="com.google.android.apps.messaging.RCS_RECEIVED" />
+            <action android:name="android.intent.action.PROVIDER_CHANGED" />
         </intent-filter>
       </receiver>
       
