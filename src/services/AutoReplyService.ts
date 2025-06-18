@@ -513,6 +513,39 @@ class AutoReplyService {
       };
     }
   }
+
+  /**
+   * Check if RCS permissions are granted and prompt if needed
+   * This checks both notification listener and notification permission
+   */
+  async checkRcsPermissions(): Promise<boolean> {
+    try {
+      // Skip if RCS auto-reply is not enabled
+      const rcsEnabled = await this.isRcsAutoReplyEnabled();
+      if (!rcsEnabled) {
+        return false;
+      }
+
+      // Import needed services
+      const { default: PermissionsService } = await import(
+        "./PermissionsService"
+      );
+
+      // Check notification permission (Android 13+)
+      const notificationPermissionGranted =
+        await PermissionsService.isNotificationPermissionGranted();
+
+      // Check notification listener permission
+      const notificationListenerEnabled =
+        await PermissionsService.isNotificationListenerEnabled();
+
+      // Return true if both permissions are granted
+      return notificationPermissionGranted && notificationListenerEnabled;
+    } catch (error) {
+      console.error("Error checking RCS permissions:", error);
+      return false;
+    }
+  }
 }
 
 export default new AutoReplyService();

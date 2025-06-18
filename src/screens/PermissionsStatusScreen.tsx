@@ -9,6 +9,7 @@ import {
   Linking,
   ActivityIndicator,
   Platform,
+  AppState,
 } from "react-native";
 import PermissionsService, {
   REQUIRED_PERMISSIONS,
@@ -23,6 +24,7 @@ const PermissionsStatusScreen: React.FC = () => {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [appState, setAppState] = useState(AppState.currentState);
 
   /**
    * Check all permissions
@@ -65,6 +67,13 @@ const PermissionsStatusScreen: React.FC = () => {
           [permissionType]: "unavailable", // Temporary status while requesting
         }));
 
+        // For notification listener, we need special handling since it opens settings
+        if (permissionType === "notificationListener") {
+          // Just open the settings, we'll check the status when the app comes back to foreground
+          await PermissionsService.openNotificationListenerSettings();
+          return;
+        }
+
         const status = await PermissionsService.requestPermission(
           permissionType
         );
@@ -98,7 +107,7 @@ const PermissionsStatusScreen: React.FC = () => {
         checkAllPermissions(false);
       }
     },
-    []
+    [checkAllPermissions]
   );
 
   /**
@@ -111,19 +120,68 @@ const PermissionsStatusScreen: React.FC = () => {
   }, [requestPermission]);
 
   /**
+   * Handle app state changes to refresh permissions when app comes back to foreground
+   */
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      "change",
+      async (nextAppState) => {
+        if (
+          appState.match(/inactive|background/) &&
+          nextAppState === "active"
+        ) {
+          console.log("App has come to the foreground, checking permissions");
+
+          // Check permissions without showing loading indicator
+          await checkAllPermissions(false);
+
+          // After checking permissions, see if notification permissions are now granted
+          // We need to get the latest status directly from the service
+          const notificationListenerStatus =
+            await PermissionsService.checkPermission("notificationListener");
+          const notificationPermissionStatus =
+            await PermissionsService.checkPermission("notificationPermission");
+
+          // If both permissions are granted, show a notification
+          if (
+            notificationListenerStatus === "granted" &&
+            notificationPermissionStatus === "granted"
+          ) {
+            // Only show if at least one of them was previously not granted
+            if (
+              permissionStatuses.notificationListener !== "granted" ||
+              permissionStatuses.notificationPermission !== "granted"
+            ) {
+              // Update the UI with the new statuses
+              setPermissionStatuses((prev) => ({
+                ...prev,
+                notificationListener: notificationListenerStatus,
+                notificationPermission: notificationPermissionStatus,
+              }));
+
+              // Show notification
+              Alert.alert(
+                "Permissions Granted",
+                "Notification permissions have been granted. RCS auto-reply is now fully functional.",
+                [{ text: "OK" }]
+              );
+            }
+          }
+        }
+        setAppState(nextAppState);
+      }
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState, checkAllPermissions, permissionStatuses]);
+
+  /**
    * Initialize and check permissions
    */
   useEffect(() => {
     checkAllPermissions(true);
-
-    // Run a single permission check when screen is focused
-    // instead of constantly checking with an interval
-    const focusListener = () => {
-      checkAllPermissions(false);
-    };
-
-    // Clean up function
-    return () => {};
   }, [checkAllPermissions]);
 
   /**
@@ -176,13 +234,105 @@ const PermissionsStatusScreen: React.FC = () => {
     );
   }, [permissionStatuses, loading]);
 
+  /**
+   * Check if RCS permissions are granted
+   */
+  const areRcsPermissionsGranted = useMemo((): boolean => {
+    if (loading || Object.keys(permissionStatuses).length === 0) {
+      return false;
+    }
+
+    const requiredRcsPermissions: PermissionType[] = [
+      "notificationListener",
+      "notificationPermission",
+    ];
+
+    return requiredRcsPermissions.every(
+      (p) => permissionStatuses[p] === "granted"
+    );
+  }, [permissionStatuses, loading]);
+
   // Render each permission item
   const renderPermissionItem = useCallback(
     (permission: (typeof REQUIRED_PERMISSIONS)[number]) => {
       const status = permissionStatuses[permission.key] || "unavailable";
       const isRequesting = status === "unavailable" && refreshing;
+
       // Check if this is the auto reply permission
       const isAutoReply = permission.key === "autoReply";
+
+      // Check if this is an RCS-related permission
+      const isRcsPermission =
+        permission.key === "notificationListener" ||
+        permission.key === "notificationPermission";
+
+      // For notification listener, we need to check the status again immediately
+      // after the user presses the Grant button
+      const handlePermissionRequest = async () => {
+        if (permission.key === "notificationListener") {
+          await requestPermission(permission.key);
+
+          // Set a timeout to check the permission status after a short delay
+          // This gives the system time to update the permission status
+          setTimeout(async () => {
+            const updatedStatus = await PermissionsService.checkPermission(
+              permission.key
+            );
+
+            // Update the UI with the new status
+            setPermissionStatuses((prev) => ({
+              ...prev,
+              [permission.key]: updatedStatus,
+            }));
+
+            // If permission was granted, show a notification
+            if (updatedStatus === "granted") {
+              // Check if notification permission is also granted
+              const notificationPermissionStatus =
+                permissionStatuses.notificationPermission;
+              if (notificationPermissionStatus === "granted") {
+                Alert.alert(
+                  "Permissions Granted",
+                  "All notification permissions have been granted. RCS auto-reply is now fully functional.",
+                  [{ text: "OK" }]
+                );
+              }
+            }
+          }, 500);
+        } else if (permission.key === "notificationPermission") {
+          // Request the permission
+          await requestPermission(permission.key);
+
+          // Check the status again immediately
+          setTimeout(async () => {
+            const updatedStatus = await PermissionsService.checkPermission(
+              permission.key
+            );
+
+            // Update the UI with the new status
+            setPermissionStatuses((prev) => ({
+              ...prev,
+              [permission.key]: updatedStatus,
+            }));
+
+            // If permission was granted, check notification listener status
+            if (updatedStatus === "granted") {
+              // Check if notification listener permission is also granted
+              const notificationListenerStatus =
+                permissionStatuses.notificationListener;
+              if (notificationListenerStatus === "granted") {
+                Alert.alert(
+                  "Permissions Granted",
+                  "All notification permissions have been granted. RCS auto-reply is now fully functional.",
+                  [{ text: "OK" }]
+                );
+              }
+            }
+          }, 500);
+        } else {
+          requestPermission(permission.key);
+        }
+      };
 
       return (
         <View
@@ -190,6 +340,7 @@ const PermissionsStatusScreen: React.FC = () => {
           style={[
             styles.permissionItem,
             isAutoReply && styles.autoReplyPermissionItem,
+            isRcsPermission && styles.rcsPermissionItem,
           ]}
         >
           <View style={styles.permissionDetails}>
@@ -197,10 +348,12 @@ const PermissionsStatusScreen: React.FC = () => {
               style={[
                 styles.permissionName,
                 isAutoReply && styles.autoReplyText,
+                isRcsPermission && styles.rcsText,
               ]}
             >
               {permission.name}
               {isAutoReply && " ✓"}
+              {isRcsPermission && " 🔔"}
             </Text>
             <Text style={styles.permissionDescription}>
               {permission.description}
@@ -223,8 +376,9 @@ const PermissionsStatusScreen: React.FC = () => {
                 styles.grantButton,
                 isRequesting && styles.grantButtonDisabled,
                 isAutoReply && styles.autoReplyButton,
+                isRcsPermission && styles.rcsButton,
               ]}
-              onPress={() => requestPermission(permission.key)}
+              onPress={handlePermissionRequest}
               disabled={isRequesting}
             >
               {isRequesting ? (
@@ -260,7 +414,29 @@ const PermissionsStatusScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* New Auto Reply Info Section */}
+        {/* New RCS Notification Info Section */}
+        <View style={styles.rcsInfoContainer}>
+          <Text style={styles.rcsInfoTitle}>🔔 RCS Auto-Reply Permissions</Text>
+          <Text style={styles.rcsInfoText}>
+            For RCS message auto-replies to work properly, the app needs these
+            permissions:
+          </Text>
+          <Text style={styles.rcsInfoItem}>
+            • <Text style={styles.rcsInfoHighlight}>Notification Access</Text>:
+            Allows the app to read RCS messages from your messaging apps
+          </Text>
+          <Text style={styles.rcsInfoItem}>
+            •{" "}
+            <Text style={styles.rcsInfoHighlight}>Notification Permission</Text>
+            : Allows the app to send notifications about RCS auto-replies
+          </Text>
+          <Text style={styles.rcsInfoHighlight}>
+            These permissions are essential for the AI to detect and respond to
+            RCS messages.
+          </Text>
+        </View>
+
+        {/* Auto Reply Info Section */}
         <View style={styles.autoReplyInfoContainer}>
           <Text style={styles.autoReplyInfoTitle}>
             🔔 Auto Reply Permission (RECEIVE_SMS)
@@ -315,7 +491,38 @@ const PermissionsStatusScreen: React.FC = () => {
               </View>
             )}
 
-            {REQUIRED_PERMISSIONS.map(renderPermissionItem)}
+            {/* Group permissions by type for better organization */}
+            <View style={styles.permissionGroupHeader}>
+              <Text style={styles.permissionGroupTitle}>
+                SMS & Call Permissions
+              </Text>
+            </View>
+
+            {REQUIRED_PERMISSIONS.filter(
+              (p) =>
+                !["notificationListener", "notificationPermission"].includes(
+                  p.key
+                )
+            ).map(renderPermissionItem)}
+
+            <View style={styles.permissionGroupHeader}>
+              <Text style={styles.permissionGroupTitle}>
+                RCS Auto-Reply Permissions
+              </Text>
+            </View>
+
+            {REQUIRED_PERMISSIONS.filter((p) =>
+              ["notificationListener", "notificationPermission"].includes(p.key)
+            ).map(renderPermissionItem)}
+
+            {!areRcsPermissionsGranted && (
+              <View style={styles.rcsPermissionsWarning}>
+                <Text style={styles.rcsPermissionsWarningText}>
+                  ⚠️ RCS auto-reply requires notification permissions to work
+                  properly.
+                </Text>
+              </View>
+            )}
 
             <TouchableOpacity
               style={styles.refreshButton}
@@ -576,6 +783,75 @@ const styles = StyleSheet.create({
     color: "#333",
     marginBottom: 12,
     textAlign: "center",
+  },
+  // New styles for RCS permissions
+  rcsPermissionItem: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#9c27b0",
+    backgroundColor: "#f3e5f5",
+  },
+  rcsText: {
+    color: "#6a1b9a",
+  },
+  rcsButton: {
+    backgroundColor: "#8e24aa",
+  },
+  rcsInfoContainer: {
+    backgroundColor: "#f3e5f5",
+    padding: 16,
+    margin: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: "#9c27b0",
+  },
+  rcsInfoTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#6a1b9a",
+    marginBottom: 8,
+  },
+  rcsInfoText: {
+    fontSize: 14,
+    color: "#6a1b9a",
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  rcsInfoItem: {
+    fontSize: 14,
+    color: "#6a1b9a",
+    lineHeight: 20,
+    marginLeft: 8,
+    marginBottom: 4,
+  },
+  rcsInfoHighlight: {
+    fontWeight: "bold",
+  },
+  permissionGroupHeader: {
+    backgroundColor: "#f5f5f5",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  permissionGroupTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#555",
+  },
+  rcsPermissionsWarning: {
+    backgroundColor: "#fff3cd",
+    padding: 12,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: "#ffc107",
+  },
+  rcsPermissionsWarningText: {
+    fontSize: 14,
+    color: "#856404",
   },
 });
 

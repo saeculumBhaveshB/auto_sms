@@ -3,6 +3,7 @@ package com.auto_sms.callsms
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Log
 import com.facebook.react.bridge.ReactApplicationContext
@@ -30,7 +31,25 @@ class RcsPermissionHelper {
             Log.e(TAG, "📊 Package name: $packageName")
             Log.e(TAG, "📊 Enabled listeners: $listenerString")
             
-            return listenerString?.contains(packageName) == true
+            // First check: See if our package name is in the enabled listeners string
+            val isInEnabledListeners = listenerString?.contains(packageName) == true
+            
+            // Second check: See if the notification listener service is enabled
+            val componentName = ComponentName(context, "com.auto_sms.callsms.RcsNotificationListener")
+            val isComponentEnabled = try {
+                val pm = context.packageManager
+                val componentEnabledSetting = pm.getComponentEnabledSetting(componentName)
+                componentEnabledSetting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error checking component status: ${e.message}")
+                false
+            }
+            
+            Log.e(TAG, "📊 Is in enabled listeners: $isInEnabledListeners")
+            Log.e(TAG, "📊 Is component enabled: $isComponentEnabled")
+            
+            // Return true if both checks pass
+            return isInEnabledListeners
         }
         
         /**

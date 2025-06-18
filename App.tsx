@@ -128,6 +128,32 @@ function App(): React.JSX.Element {
     }
   }, []);
 
+  // Check if notification permission is granted (Android 13+)
+  const checkNotificationPermission = useCallback(async () => {
+    try {
+      if (PermissionsService.isNotificationPermissionGranted) {
+        const isGranted =
+          await PermissionsService.isNotificationPermissionGranted();
+        console.log(
+          `Notification permission: ${isGranted ? "granted" : "not granted"}`
+        );
+
+        if (!isGranted) {
+          console.log("Requesting notification permission");
+          await PermissionsService.requestNotificationPermission();
+        }
+
+        return isGranted;
+      } else {
+        console.warn("Notification permission check not available");
+        return false;
+      }
+    } catch (error) {
+      console.error("Error checking notification permission:", error);
+      return false;
+    }
+  }, []);
+
   // Initialize app settings and process pending messages on app start
   useEffect(() => {
     const initializeApp = async () => {
@@ -167,9 +193,17 @@ function App(): React.JSX.Element {
           }`
         );
 
-        // Check notification listener permission for RCS auto-reply
+        // Check notification permissions for RCS auto-reply
         if (rcsAutoReplyEnabled) {
-          await checkNotificationListenerPermission();
+          // Use the new comprehensive method to check RCS permissions
+          const rcsPermissionsGranted =
+            await AutoReplyService.checkRcsPermissions();
+
+          if (!rcsPermissionsGranted) {
+            // If permissions are not granted, request them individually
+            await checkNotificationPermission();
+            await checkNotificationListenerPermission();
+          }
         }
 
         // Check permissions and start monitoring if needed
@@ -251,8 +285,15 @@ function App(): React.JSX.Element {
           console.log("RCS Auto Reply disabled, re-enabling...");
           await AutoReplyService.setRcsAutoReplyEnabled(true);
 
-          // Re-check notification listener permission
-          await checkNotificationListenerPermission();
+          // Check RCS permissions
+          const rcsPermissionsGranted =
+            await AutoReplyService.checkRcsPermissions();
+
+          if (!rcsPermissionsGranted) {
+            // If permissions are not granted, request them individually
+            await checkNotificationPermission();
+            await checkNotificationListenerPermission();
+          }
         }
       } catch (error) {
         console.error("Error in service check interval:", error);
@@ -266,6 +307,7 @@ function App(): React.JSX.Element {
     initAttempts,
     initializeSharedPreferences,
     checkNotificationListenerPermission,
+    checkNotificationPermission,
   ]);
 
   return (
