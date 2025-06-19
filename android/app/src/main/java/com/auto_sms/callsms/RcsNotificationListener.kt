@@ -156,41 +156,41 @@ class RcsNotificationListener : NotificationListenerService() {
                     }
                 }
                 "com.auto_sms.TEST_FALLBACK_RESPONSE" -> {
-                    Log.e(TAG, "🧪 Testing fallback response mechanism")
+                    Log.e(TAG, "🧪 Testing LLM response mechanism")
                     val sender = intent.getStringExtra("sender") ?: "Test Sender"
                     val message = intent.getStringExtra("message") ?: "How are you doing today?"
                     
-                    // Call the private method in RcsAutoReplyManager using reflection
+                    // Use document-based LLM approach instead
                     try {
-                        Log.e(TAG, "🔍 Attempting to call generateContextAwareFallbackResponse via reflection")
-                        val method = RcsAutoReplyManager::class.java.getDeclaredMethod(
-                            "generateContextAwareFallbackResponse",
-                            String::class.java,
-                            String::class.java,
-                            String::class.java
-                        )
-                        method.isAccessible = true
+                        Log.e(TAG, "🔍 Using document-based LLM approach for testing")
+                        val response = rcsManager.forceDynamicMlcResponse(sender, message)
                         
-                        val response = method.invoke(rcsManager, sender, message, "") as String
-                        
-                        Log.e(TAG, "✅ Fallback response: $response")
-                        showDebugNotification(
-                            "Fallback Response Test",
-                            "From: $sender\nMessage: $message\nResponse: $response"
-                        )
-                        
-                        // Try to send the response via SMS
-                        try {
-                            SmsSender.sendSms(applicationContext, sender, response)
-                            Log.e(TAG, "✅ Test fallback response sent via SMS")
-                            rcsManager.addLogEntry(sender, message, response, true, false)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Failed to send test fallback response: ${e.message}")
+                        if (response.isNotEmpty()) {
+                            Log.e(TAG, "✅ LLM response: $response")
+                            showDebugNotification(
+                                "LLM Response Test",
+                                "From: $sender\nMessage: $message\nResponse: $response"
+                            )
+                            
+                            // Try to send the response via SMS
+                            try {
+                                SmsSender.sendSms(applicationContext, sender, response)
+                                Log.e(TAG, "✅ Test LLM response sent via SMS")
+                                rcsManager.addLogEntry(sender, message, response, true, true)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Failed to send test LLM response: ${e.message}")
+                            }
+                        } else {
+                            Log.e(TAG, "❌ No LLM response generated")
+                            showDebugNotification(
+                                "LLM Test Failed",
+                                "No response was generated"
+                            )
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error testing fallback response: ${e.message}")
+                        Log.e(TAG, "❌ Error testing LLM response: ${e.message}")
                         showDebugNotification(
-                            "Fallback Test Error",
+                            "LLM Test Error",
                             "Error: ${e.message}"
                         )
                     }
