@@ -20,6 +20,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import org.json.JSONObject
 
 class RcsNotificationListener : NotificationListenerService() {
     private val TAG = "RcsNotification"
@@ -43,11 +44,36 @@ class RcsNotificationListener : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         
+        Log.e(TAG, "🔍🔍🔍 RcsNotificationListener onCreate - SERVICE STARTING 🔍🔍🔍")
+        
         // Create RCS Auto-Reply Manager
         rcsManager = RcsAutoReplyManager(applicationContext)
         
+        // Make sure auto-reply is enabled
+        if (!rcsManager.isEnabled()) {
+            Log.e(TAG, "🔄 Auto-reply was disabled, enabling it now")
+            rcsManager.setEnabled(true)
+        }
+        
+        // Ensure LLM is enabled
+        if (!rcsManager.isLLMEnabled()) {
+            Log.e(TAG, "🔄 LLM was disabled, enabling it now")
+            rcsManager.setLLMEnabled(true)
+        }
+        
+        // Set a reasonable rate limit for testing
+        val currentRateLimit = rcsManager.getRateLimit()
+        if (currentRateLimit > 60 * 1000) {
+            Log.e(TAG, "🔄 Setting a more reasonable rate limit (60 seconds)")
+            rcsManager.setRateLimit(60 * 1000) // 60 seconds
+        }
+        
         // Check if notification listener is enabled
-        checkNotificationListenerEnabled()
+        val isListenerEnabled = checkNotificationListenerEnabled()
+        Log.e(TAG, "🔑 Notification listener enabled: $isListenerEnabled")
+        
+        // Check if service is properly registered in manifest
+        checkServiceRegistration()
         
         // Check if RCS auto-reply is enabled
         val isEnabled = rcsManager.isEnabled()
@@ -64,6 +90,9 @@ class RcsNotificationListener : NotificationListenerService() {
             addAction("com.auto_sms.RESET_RCS_STATE")
             addAction("com.auto_sms.SET_TESTING_RATE_LIMIT")
             addAction("com.auto_sms.TEST_RCS_AUTO_REPLY")
+            addAction("com.auto_sms.TEST_FALLBACK_RESPONSE")
+            addAction("com.auto_sms.DEBUG_RCS_STATUS")
+            addAction("com.auto_sms.SIMULATE_RCS_MESSAGE")
         }
         
         applicationContext.registerReceiver(testCommandReceiver, filter)
@@ -75,6 +104,11 @@ class RcsNotificationListener : NotificationListenerService() {
         notificationListenerFilter.addAction("enabled_notification_listeners")
         applicationContext.registerReceiver(notificationListenerStatusReceiver, notificationListenerFilter)
         Log.e(TAG, "🔄 Registered notification listener status receiver")
+        
+        // Show a debug notification to confirm service is running
+        showDebugNotification("RCS Listener Active", "The RCS notification listener service is running")
+        
+        Log.e(TAG, "✅✅✅ RcsNotificationListener onCreate completed ✅✅✅")
     }
     
     // BroadcastReceiver for test commands
@@ -90,10 +124,14 @@ class RcsNotificationListener : NotificationListenerService() {
                         Log.e(TAG, "🔄 Enabling RCS auto-reply for testing")
                         rcsManager.setEnabled(true)
                     }
+                    
+                    showDebugNotification("RCS State Reset", "RCS state has been reset for testing")
                 }
                 "com.auto_sms.SET_TESTING_RATE_LIMIT" -> {
                     Log.e(TAG, "⏱️ Received command to set testing rate limit")
                     rcsManager.setTestingRateLimit()
+                    
+                    showDebugNotification("RCS Rate Limit Set", "Testing-friendly rate limit has been set")
                 }
                 "com.auto_sms.TEST_RCS_AUTO_REPLY" -> {
                     Log.e(TAG, "🧪 Received test RCS auto-reply command")
@@ -110,9 +148,155 @@ class RcsNotificationListener : NotificationListenerService() {
                         
                         // Log the response
                         rcsManager.addLogEntry(sender, message, dynamicResponse, true, true)
+                        
+                        showDebugNotification("Test Reply Generated", "To: $sender\nMessage: $dynamicResponse")
                     } else {
                         // Process the test message normally
                         processManualTestMessage(sender, message)
+                    }
+                }
+                "com.auto_sms.TEST_FALLBACK_RESPONSE" -> {
+                    Log.e(TAG, "🧪 Testing fallback response mechanism")
+                    val sender = intent.getStringExtra("sender") ?: "Test Sender"
+                    val message = intent.getStringExtra("message") ?: "How are you doing today?"
+                    
+                    // Call the private method in RcsAutoReplyManager using reflection
+                    try {
+                        Log.e(TAG, "🔍 Attempting to call generateContextAwareFallbackResponse via reflection")
+                        val method = RcsAutoReplyManager::class.java.getDeclaredMethod(
+                            "generateContextAwareFallbackResponse",
+                            String::class.java,
+                            String::class.java,
+                            String::class.java
+                        )
+                        method.isAccessible = true
+                        
+                        val response = method.invoke(rcsManager, sender, message, "") as String
+                        
+                        Log.e(TAG, "✅ Fallback response: $response")
+                        showDebugNotification(
+                            "Fallback Response Test",
+                            "From: $sender\nMessage: $message\nResponse: $response"
+                        )
+                        
+                        // Try to send the response via SMS
+                        try {
+                            SmsSender.sendSms(applicationContext, sender, response)
+                            Log.e(TAG, "✅ Test fallback response sent via SMS")
+                            rcsManager.addLogEntry(sender, message, response, true, false)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Failed to send test fallback response: ${e.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error testing fallback response: ${e.message}")
+                        showDebugNotification(
+                            "Fallback Test Error",
+                            "Error: ${e.message}"
+                        )
+                    }
+                }
+                "com.auto_sms.DEBUG_RCS_STATUS" -> {
+                    Log.e(TAG, "🔍🔍🔍 RCS DEBUG STATUS CHECK 🔍🔍🔍")
+                    
+                    // Check if notification listener is enabled
+                    val isListenerEnabled = checkNotificationListenerEnabled()
+                    Log.e(TAG, "🔑 Notification listener enabled: $isListenerEnabled")
+                    
+                    // Check if RCS auto-reply is enabled
+                    val isEnabled = rcsManager.isEnabled()
+                    Log.e(TAG, "📊 RCS Auto-reply enabled: $isEnabled")
+                    
+                    // Check if LLM is enabled
+                    val isLLMEnabled = rcsManager.isLLMEnabled()
+                    Log.e(TAG, "🧠 LLM enabled: $isLLMEnabled")
+                    
+                    // Get rate limit
+                    val rateLimit = rcsManager.getRateLimit()
+                    Log.e(TAG, "⏱️ Rate limit: ${rateLimit}ms (${rateLimit / 1000} seconds)")
+                    
+                    // Show notification with status
+                    val statusMessage = "Listener: ${if (isListenerEnabled) "✅" else "❌"}\n" +
+                                       "Auto-Reply: ${if (isEnabled) "✅" else "❌"}\n" +
+                                       "LLM: ${if (isLLMEnabled) "✅" else "❌"}\n" +
+                                       "Rate Limit: ${rateLimit / 1000}s"
+                    
+                    showDebugNotification("RCS Status", statusMessage)
+                }
+                "com.auto_sms.SIMULATE_RCS_MESSAGE" -> {
+                    Log.e(TAG, "🔄🔄🔄 SIMULATING RCS MESSAGE 🔄🔄🔄")
+                    
+                    val sender = intent.getStringExtra("sender") ?: "+1234567890"
+                    val message = intent.getStringExtra("message") ?: "Hello, this is a test message"
+                    
+                    Log.e(TAG, "📱 Simulating message from: $sender")
+                    Log.e(TAG, "💬 Message content: $message")
+                    
+                    // Create test notification channel if needed
+                    createTestNotificationChannel()
+                    
+                    // Create a simulated notification bundle
+                    val extras = Bundle()
+                    extras.putString(Notification.EXTRA_TITLE, sender)
+                    extras.putCharSequence(Notification.EXTRA_TEXT, message)
+                    extras.putString("android.conversationTitle", sender)
+                    extras.putBoolean("android.isGroupConversation", false)
+                    
+                    // Create notification
+                    val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Notification.Builder(applicationContext, "rcs_test_channel")
+                            .setChannelId("rcs_test_channel")
+                    } else {
+                        Notification.Builder(applicationContext)
+                    }
+                    
+                    val notification = notificationBuilder
+                        .setContentTitle(sender)
+                        .setContentText(message)
+                        .setSmallIcon(android.R.drawable.ic_dialog_email)
+                        .setExtras(extras)
+                        .build()
+                    
+                    // Try to process this simulated notification
+                    try {
+                        Log.e(TAG, "🔄 Processing simulated message through RCS manager")
+                        val replyMessage = rcsManager.processMessage(sender, message)
+                        
+                        if (replyMessage != null) {
+                            Log.e(TAG, "✅ Reply generated: $replyMessage")
+                            
+                            // Try to send via SMS
+                            try {
+                                Log.e(TAG, "📱 Sending reply via SMS")
+                                SmsSender.sendSms(applicationContext, sender, replyMessage)
+                                Log.e(TAG, "✅ SMS sent successfully")
+                                
+                                showDebugNotification(
+                                    "RCS Test Reply Sent",
+                                    "To: $sender\nReply: $replyMessage"
+                                )
+                                
+                                rcsManager.addLogEntry(sender, message, replyMessage, true, true)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error sending SMS: ${e.message}")
+                                
+                                showDebugNotification(
+                                    "RCS Test Reply Failed",
+                                    "Failed to send SMS: ${e.message}"
+                                )
+                            }
+                        } else {
+                            Log.e(TAG, "ℹ️ No reply generated for this message")
+                            showDebugNotification(
+                                "No Reply Generated",
+                                "No auto-reply was generated for the test message"
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error processing simulated message: ${e.message}")
+                        showDebugNotification(
+                            "Simulation Error",
+                            "Error: ${e.message}"
+                        )
                     }
                 }
             }
@@ -174,6 +358,15 @@ class RcsNotificationListener : NotificationListenerService() {
         } else {
             Log.e(TAG, "⚠️ RCS Auto-reply is disabled - notifications will be ignored")
         }
+        
+        // Show a debug notification to confirm connection
+        showDebugNotification("RCS Listener Connected", "The RCS notification listener is now connected to the system")
+        
+        Log.e(TAG, "📱📱📱 DEVICE INFO 📱📱📱")
+        Log.e(TAG, "• Manufacturer: ${Build.MANUFACTURER}")
+        Log.e(TAG, "• Model: ${Build.MODEL}")
+        Log.e(TAG, "• Android Version: ${Build.VERSION.RELEASE}")
+        Log.e(TAG, "• SDK Level: ${Build.VERSION.SDK_INT}")
     }
     
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -324,6 +517,7 @@ class RcsNotificationListener : NotificationListenerService() {
             val extras = notification.extras
             
             Log.e(TAG, "LOGTAG_RCS_DETAILS: 📨📨📨 GOOGLE MESSAGES NOTIFICATION 📨📨📨")
+            Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Processing Google Messages notification")
             
             // Always assume Google Messages notifications are RCS-related unless proven otherwise
             var isRcsMessage = true
@@ -429,6 +623,7 @@ class RcsNotificationListener : NotificationListenerService() {
             
             // If we have a message and it looks like an RCS message, process it
             if (message != null && isRcsMessage) {
+                Log.e(TAG, "✅ Valid Google Messages RCS message detected, processing...")
                 processMessageNotification(sbn, notification, extras, sender, message)
             } else {
                 Log.e(TAG, "ℹ️ Google Messages notification doesn't appear to be an RCS message, ignoring")
@@ -449,6 +644,10 @@ class RcsNotificationListener : NotificationListenerService() {
         sender: String,
         message: String
     ) {
+        Log.e(TAG, "🔍🔍🔍 PROCESSING MESSAGE NOTIFICATION 🔍🔍🔍")
+        Log.e(TAG, "   • Sender: $sender")
+        Log.e(TAG, "   • Message: $message")
+        
         // Get conversation ID if available (for tracking ongoing conversations)
         val conversationId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Use notification key as conversation ID since EXTRA_CONVERSATION_ID isn't directly available
@@ -477,6 +676,9 @@ class RcsNotificationListener : NotificationListenerService() {
             return
         }
         
+        // Check for rate limiting issues before processing
+        checkRateLimitingIssues(sender, message)
+        
         // Process the notification with rule engine
         Log.e(TAG, "🧠 Processing message with RCS auto-reply manager...")
         val replyMessage = rcsManager.processMessage(sender, message)
@@ -499,11 +701,84 @@ class RcsNotificationListener : NotificationListenerService() {
                     Log.e(TAG, "🔄 Found alternative reply action, attempting to use it...")
                     sendAlternativeReply(alternativeAction, conversationId, sender, message, replyMessage)
                 } else {
-                    rcsManager.addLogEntry(sender, message, "Failed: No reply action available", false)
+                    Log.e(TAG, "❌❌❌ NO REPLY ACTION FOUND - THIS IS WHY AUTO-REPLY IS NOT WORKING")
+                    Log.e(TAG, "❌❌❌ Attempting SMS fallback...")
+                    
+                    // Try to send via direct SMS as fallback
+                    try {
+                        Log.e(TAG, "📱 Attempting direct SMS fallback")
+                        SmsSender.sendSms(applicationContext, sender, replyMessage)
+                        Log.e(TAG, "✅ Direct SMS fallback successful")
+                        rcsManager.addLogEntry(sender, message, "Sent via SMS fallback: $replyMessage", true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Direct SMS fallback failed: ${e.message}")
+                        rcsManager.addLogEntry(sender, message, "Failed: No reply action available and SMS failed", false)
+                    }
                 }
             }
         } else {
             Log.e(TAG, "ℹ️ No auto-reply needed for this message")
+        }
+    }
+    
+    /**
+     * Check for rate limiting issues that might prevent replies
+     */
+    private fun checkRateLimitingIssues(sender: String, message: String) {
+        try {
+            Log.e(TAG, "⏱️ Checking for rate limiting issues")
+            
+            val prefs = applicationContext.getSharedPreferences(RcsAutoReplyManager.PREFS_NAME, Context.MODE_PRIVATE)
+            val repliedConversations = prefs.getString(RcsAutoReplyManager.RCS_REPLIED_CONVERSATIONS_KEY, "{}") ?: "{}"
+            val rateLimit = rcsManager.getRateLimit()
+            
+            try {
+                val json = JSONObject(repliedConversations)
+                
+                // Check if we've replied to this sender recently
+                if (json.has(sender)) {
+                    val senderData = json.getJSONObject(sender)
+                    val lastReplyTime = senderData.getLong("timestamp")
+                    val currentTime = System.currentTimeMillis()
+                    val timeSinceLastReply = currentTime - lastReplyTime
+                    
+                    Log.e(TAG, "⏱️ Rate limit diagnostics:")
+                    Log.e(TAG, "   • Current rate limit: ${rateLimit}ms (${rateLimit / 1000} seconds)")
+                    Log.e(TAG, "   • Time since last reply: ${timeSinceLastReply}ms (${timeSinceLastReply / 1000} seconds)")
+                    Log.e(TAG, "   • Is rate limited: ${timeSinceLastReply < rateLimit}")
+                    
+                    if (timeSinceLastReply < rateLimit) {
+                        Log.e(TAG, "⚠️⚠️⚠️ RATE LIMITING DETECTED - This is why no reply is being sent!")
+                        Log.e(TAG, "⚠️ Need to wait ${(rateLimit - timeSinceLastReply) / 1000} more seconds before replying")
+                        
+                        // Check if last message is the same
+                        if (senderData.has("lastMessage")) {
+                            val lastMessage = senderData.getString("lastMessage")
+                            Log.e(TAG, "   • Last message: $lastMessage")
+                            Log.e(TAG, "   • Current message: $message")
+                            Log.e(TAG, "   • Same message: ${lastMessage == message}")
+                            
+                            if (lastMessage == message) {
+                                Log.e(TAG, "⚠️ Duplicate message detected - this might be a notification duplicate")
+                            }
+                        }
+                        
+                        // Show a notification about rate limiting
+                        showDebugNotification(
+                            "Rate Limiting Active",
+                            "No reply sent due to rate limiting. Wait ${(rateLimit - timeSinceLastReply) / 1000}s more."
+                        )
+                    } else {
+                        Log.e(TAG, "✅ Outside rate limit period, should be able to reply")
+                    }
+                } else {
+                    Log.e(TAG, "✅ First message from this sender, no rate limiting applies")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error checking rate limiting: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in checkRateLimitingIssues: ${e.message}")
         }
     }
     
@@ -638,6 +913,9 @@ class RcsNotificationListener : NotificationListenerService() {
      */
     private fun isRcsMessage(packageName: String, notification: Notification, extras: Bundle): Boolean {
         Log.e(TAG, "🔍 Analyzing if message is RCS...")
+        Log.e(TAG, "🔍 DETAILED RCS DETECTION DIAGNOSTICS:")
+        Log.e(TAG, "   • Package: $packageName")
+        Log.e(TAG, "   • Category: ${notification.category}")
         
         // CRITICAL FIX: For Google Messages, assume most notifications are RCS-related
         // This is the most reliable approach given the inconsistent notification formats
@@ -659,6 +937,10 @@ class RcsNotificationListener : NotificationListenerService() {
                                     extras.containsKey("android.messagingUser") ||
                                     extras.containsKey("android.messagingStyleUser")
             
+            Log.e(TAG, "   • Has Text Content: $hasText")
+            Log.e(TAG, "   • Has Conversation Extras: $hasConversationExtras")
+            Log.e(TAG, "   • Has Messaging Extras: $hasMessagingExtras")
+            
             if (hasText || hasConversationExtras || hasMessagingExtras) {
                 Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Google Messages with content, treating as RCS")
                 return true
@@ -668,6 +950,8 @@ class RcsNotificationListener : NotificationListenerService() {
             val hasReplyActions = notification.actions?.any { 
                 it?.remoteInputs?.isNotEmpty() == true 
             } ?: false
+            
+            Log.e(TAG, "   • Has Reply Actions: $hasReplyActions")
             
             if (hasReplyActions) {
                 Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ QUICK CHECK: Message has reply actions, treating as RCS")
@@ -686,21 +970,31 @@ class RcsNotificationListener : NotificationListenerService() {
             val hasMessagingPerson = extras.containsKey("android.messagingPerson")
             val hasMessages = extras.containsKey("android.messages")
             
+            Log.e(TAG, "   • Has messagingStyleUser: $hasMessagingStyleUser")
+            Log.e(TAG, "   • Has messagingUser: $hasMessagingUser")
+            Log.e(TAG, "   • Has hiddenConversationTitle: $hasHiddenConversationTitle")
+            Log.e(TAG, "   • Has peopleList: $hasPeopleList")
+            Log.e(TAG, "   • Has messages: $hasMessages")
+            
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - messagingStyleUser: $hasMessagingStyleUser, messagingUser: $hasMessagingUser")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - hiddenConversationTitle: $hasHiddenConversationTitle")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Indicators - peopleList: $hasPeopleList, messagingPerson: $hasMessagingPerson, messages: $hasMessages")
             
             // NEW: Check if this is a summary notification, which we can ignore
             val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+            Log.e(TAG, "   • Is Group Summary: $isGroupSummary")
+            
             if (isGroupSummary) {
                 Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ This appears to be a group summary notification")
                 // Even for summaries, check if they have message content that should be processed
                 if (!hasText && !hasMessages) {
+                    Log.e(TAG, "   • Group summary without text or messages, not treating as RCS")
                     return false
                 }
             }
             
             // Log all extras for debugging
+            Log.e(TAG, "   • Extras Keys:")
             extras.keySet().forEach { key ->
                 val value = when (val v = extras.get(key)) {
                     null -> "null"
@@ -709,7 +1003,7 @@ class RcsNotificationListener : NotificationListenerService() {
                     is Array<*> -> "Array with ${v.size} items"
                     else -> v.toString()
                 }
-                Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Extra - $key: $value")
+                Log.e(TAG, "      - $key: $value")
             }
             
             if (hasMessagingStyleUser || hasMessagingUser || hasHiddenConversationTitle || hasPeopleList || hasMessagingPerson || hasMessages) {
@@ -720,10 +1014,12 @@ class RcsNotificationListener : NotificationListenerService() {
             // Check for specific actions that are usually present in RCS messages
             val actions = notification.actions ?: emptyArray()
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Found ${actions.size} notification actions")
+            Log.e(TAG, "   • Actions Count: ${actions.size}")
             
             // Log all action titles for debugging
             actions.forEachIndexed { index, action ->
                 Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Action $index - ${action?.title}")
+                Log.e(TAG, "      - Action $index: ${action?.title}")
             }
             
             val hasMarkAsReadAction = actions.any { action -> 
@@ -735,6 +1031,9 @@ class RcsNotificationListener : NotificationListenerService() {
                 action?.title?.toString()?.contains("Reply", ignoreCase = true) == true ||
                 action?.title?.toString()?.contains("respond", ignoreCase = true) == true
             }
+            
+            Log.e(TAG, "   • Has Mark as Read Action: $hasMarkAsReadAction")
+            Log.e(TAG, "   • Has Reply Action: $hasReplyAction")
             
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Has Mark as read action: $hasMarkAsReadAction")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Has Reply action: $hasReplyAction")
@@ -756,6 +1055,7 @@ class RcsNotificationListener : NotificationListenerService() {
         // Most RCS implementations use MessagingStyle notifications
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val template = extras.getString(Notification.EXTRA_TEMPLATE)
+            Log.e(TAG, "   • Notification Template: $template")
             Log.e(TAG, "LOGTAG_RCS_DETAILS: ↘️ Notification template: $template")
             
             if (Notification.MessagingStyle::class.java.name == template) {
@@ -778,8 +1078,13 @@ class RcsNotificationListener : NotificationListenerService() {
         }
         
         // NEW: Check if the notification has a Category.MESSAGE or Category.SOCIAL
-        if (notification.category == Notification.CATEGORY_MESSAGE || 
-            notification.category == Notification.CATEGORY_SOCIAL) {
+        val isMessageCategory = notification.category == Notification.CATEGORY_MESSAGE
+        val isSocialCategory = notification.category == Notification.CATEGORY_SOCIAL
+        
+        Log.e(TAG, "   • Is Message Category: $isMessageCategory")
+        Log.e(TAG, "   • Is Social Category: $isSocialCategory")
+        
+        if (isMessageCategory || isSocialCategory) {
             Log.e(TAG, "✅ Message or social category found, treating as RCS")
             return true
         }
@@ -993,7 +1298,7 @@ class RcsNotificationListener : NotificationListenerService() {
                 rcsManager.addLogEntry(sender, originalMessage, "Failed: All methods failed", false, false)
             }
             
-            Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ERROR 🧠🧠��")
+            Log.e(TAG, "🧠🧠🧠 END: MLC LLM AUTO-REPLY ERROR 🧠🧠🧠")
         }
     }
     
@@ -1170,6 +1475,12 @@ class RcsNotificationListener : NotificationListenerService() {
                 
                 // Notify the user about missing permission
                 notifyMissingPermission()
+                
+                // Also show a debug notification
+                showDebugNotification(
+                    "RCS Permission Missing",
+                    "Notification listener permission is required for auto-replies"
+                )
             }
             
             return enabled
@@ -1269,6 +1580,136 @@ class RcsNotificationListener : NotificationListenerService() {
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error processing manual test message: ${e.message}")
             return false
+        }
+    }
+
+    /**
+     * Show a debug notification to confirm the service is running
+     */
+    private fun showDebugNotification(title: String, message: String) {
+        try {
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Create notification channel for Android O and above
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    "rcs_debug_channel",
+                    "RCS Debug",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+                channel.description = "Debug notifications for RCS service"
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            // Build the notification
+            val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(applicationContext, "rcs_debug_channel")
+            } else {
+                Notification.Builder(applicationContext)
+                    .setPriority(Notification.PRIORITY_LOW)
+            }
+            
+            val notification = notificationBuilder
+                .setContentTitle(title)
+                .setContentText(message)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .build()
+            
+            // Show the notification
+            notificationManager.notify(54321, notification)
+            
+            Log.e(TAG, "📲 Displayed debug notification: $title")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error showing debug notification: ${e.message}")
+        }
+    }
+
+    /**
+     * Create a test notification channel for Android O and above
+     */
+    private fun createTestNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                
+                // Check if the channel already exists
+                val existingChannel = notificationManager.getNotificationChannel("rcs_test_channel")
+                if (existingChannel == null) {
+                    Log.e(TAG, "📲 Creating test notification channel")
+                    
+                    val channel = NotificationChannel(
+                        "rcs_test_channel",
+                        "RCS Test Messages",
+                        NotificationManager.IMPORTANCE_HIGH
+                    )
+                    channel.description = "Channel for testing RCS message notifications"
+                    channel.enableVibration(true)
+                    channel.enableLights(true)
+                    
+                    notificationManager.createNotificationChannel(channel)
+                    Log.e(TAG, "✅ Test notification channel created")
+                } else {
+                    Log.e(TAG, "ℹ️ Test notification channel already exists")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error creating test notification channel: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Check if this service is properly registered in the manifest
+     */
+    private fun checkServiceRegistration() {
+        try {
+            Log.e(TAG, "🔍 Checking if RcsNotificationListener is properly registered in manifest")
+            
+            val packageManager = applicationContext.packageManager
+            val packageName = applicationContext.packageName
+            
+            // Get all services for this package
+            val serviceInfo = packageManager.getPackageInfo(
+                packageName,
+                android.content.pm.PackageManager.GET_SERVICES
+            ).services
+            
+            // Check if our service is in the list
+            val thisServiceName = RcsNotificationListener::class.java.name
+            val isRegistered = serviceInfo?.any { it.name == thisServiceName } ?: false
+            
+            Log.e(TAG, "📋 Service registration check:")
+            Log.e(TAG, "   • Service class: $thisServiceName")
+            Log.e(TAG, "   • Registered in manifest: $isRegistered")
+            
+            if (!isRegistered) {
+                Log.e(TAG, "❌❌❌ CRITICAL ERROR: RcsNotificationListener is NOT registered in the manifest!")
+                Log.e(TAG, "❌❌❌ This is why RCS auto-replies are not working!")
+                Log.e(TAG, "ℹ️ Add the service to AndroidManifest.xml with proper permission")
+                
+                // Show a notification about this critical error
+                showDebugNotification(
+                    "Critical Error: Service Not Registered",
+                    "RcsNotificationListener is not registered in the manifest"
+                )
+            } else {
+                // Check if it has the proper permission
+                val hasPermission = serviceInfo?.firstOrNull { it.name == thisServiceName }
+                    ?.permission == "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+                
+                Log.e(TAG, "   • Has proper permission: $hasPermission")
+                
+                if (!hasPermission) {
+                    Log.e(TAG, "❌❌❌ CRITICAL ERROR: RcsNotificationListener is missing the proper permission!")
+                    Log.e(TAG, "❌❌❌ It should have android.permission.BIND_NOTIFICATION_LISTENER_SERVICE")
+                    
+                    showDebugNotification(
+                        "Critical Error: Missing Permission",
+                        "RcsNotificationListener is missing the proper permission in manifest"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking service registration: ${e.message}")
         }
     }
 } 

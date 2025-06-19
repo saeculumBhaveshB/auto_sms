@@ -86,6 +86,11 @@ class RcsAutoReplyManager(private val context: Context) {
                     }
                 }
             }
+        } else {
+            Log.e(TAG, "⚠️ Context is not ReactApplicationContext, LLM features will be limited")
+            Log.e(TAG, "⚠️ Using context type: ${context.javaClass.name}")
+            isMLCInitialized = false
+            mlcLlmModule = null
         }
         
         // Ensure RCS auto-reply and LLM are both enabled
@@ -261,6 +266,12 @@ class RcsAutoReplyManager(private val context: Context) {
     private fun generateMlcLLMResponse(sender: String, message: String): String {
         Log.e(TAG, "🧠 START: generateMlcLLMResponse for sender: $sender")
         try {
+            // Check if context is valid for LLM operations
+            if (!isContextValidForLLM()) {
+                Log.e(TAG, "⚠️ Context not valid for LLM, using fallback")
+                return ""
+            }
+            
             if (mlcLlmModule == null) {
                 Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
                 if (this.context is ReactApplicationContext) {
@@ -366,6 +377,19 @@ class RcsAutoReplyManager(private val context: Context) {
         if (hasRepliedRecently(sender, message)) {
             Log.e(TAG, "⚠️ Already replied to $sender recently, skipping")
             return null
+        }
+        
+        // CRITICAL FIX: Check if context is valid for LLM operations
+        // If not, immediately use context-aware fallback to ensure we always reply
+        if (!isContextValidForLLM()) {
+            Log.e(TAG, "⚠️ Context not valid for LLM, using context-aware fallback immediately")
+            val fallbackResponse = generateContextAwareFallbackResponse(sender, message, "")
+            if (fallbackResponse.isNotEmpty()) {
+                Log.e(TAG, "✅ Generated immediate context-aware fallback: $fallbackResponse")
+                recordReply(sender, message)
+                addLogEntry(sender, message, fallbackResponse, true, false)
+                return fallbackResponse
+            }
         }
         
         // Record that we'll be replying to this sender
@@ -493,9 +517,14 @@ class RcsAutoReplyManager(private val context: Context) {
                         Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
                     }
                     
-                    // If all approaches fail, don't use static templates
-                    Log.e(TAG, "⚠️ Dynamic response generation failed, no rule-based response will be sent")
-                    return null
+                    // If all LLM approaches fail, use our new context-aware fallback
+                    Log.e(TAG, "🔄 Dynamic response generation failed, using context-aware fallback")
+                    val fallbackResponse = generateContextAwareFallbackResponse(sender, message, ruleMessage)
+                    if (fallbackResponse.isNotEmpty()) {
+                        Log.e(TAG, "✅ Generated context-aware fallback response: $fallbackResponse")
+                        addLogEntry(sender, message, fallbackResponse, true, false)
+                        return fallbackResponse
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error processing rule ${i}: ${e.message}")
@@ -578,9 +607,114 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "❌ Error with reflection approach for default response: ${e.message}")
         }
         
-        // If all approaches fail, don't use static fallback
-        Log.e(TAG, "⚠️ Dynamic response generation failed, no response will be sent")
+        // If all LLM approaches fail, use our new context-aware fallback
+        Log.e(TAG, "🔄 All dynamic approaches failed, using context-aware fallback")
+        val fallbackResponse = generateContextAwareFallbackResponse(sender, message, "")
+        if (fallbackResponse.isNotEmpty()) {
+            Log.e(TAG, "✅ Generated context-aware fallback response: $fallbackResponse")
+            addLogEntry(sender, message, fallbackResponse, true, false)
+            return fallbackResponse
+        }
+        
+        // If even the fallback fails, return null
+        Log.e(TAG, "❌ All response generation methods failed")
         return null
+    }
+    
+    /**
+     * Generate a context-aware fallback response without using LLM
+     * This provides personalized responses based on message content without requiring ReactApplicationContext
+     */
+    private fun generateContextAwareFallbackResponse(sender: String, message: String, contextHint: String = ""): String {
+        Log.e(TAG, "🔄 Generating context-aware fallback response")
+        Log.e(TAG, "   • Sender: $sender")
+        Log.e(TAG, "   • Message: $message")
+        Log.e(TAG, "   • Context hint: $contextHint")
+        
+        try {
+            // Extract key information from the message
+            val lowerMessage = message.lowercase()
+            
+            // Check for common message patterns and generate appropriate responses
+            
+            // Greeting detection
+            val greetingPatterns = listOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings")
+            val isGreeting = greetingPatterns.any { lowerMessage.contains(it) }
+            
+            // Question detection
+            val questionPatterns = listOf("?", "what", "when", "where", "who", "why", "how", "can you", "could you", "would you")
+            val isQuestion = lowerMessage.contains("?") || questionPatterns.any { lowerMessage.contains(it) }
+            
+            // Thank you detection
+            val thankYouPatterns = listOf("thank", "thanks", "appreciate", "grateful")
+            val isThankYou = thankYouPatterns.any { lowerMessage.contains(it) }
+            
+            // Help request detection
+            val helpPatterns = listOf("help", "assist", "support", "guide", "need", "problem", "issue", "trouble")
+            val isHelpRequest = helpPatterns.any { lowerMessage.contains(it) }
+            
+            Log.e(TAG, "   • Message analysis - Greeting: $isGreeting, Question: $isQuestion, Thank you: $isThankYou, Help request: $isHelpRequest")
+            
+            // Generate a response based on the message type
+            val response = when {
+                isGreeting -> {
+                    val greetings = listOf(
+                        "Hello! Thanks for your message. I'll get back to you as soon as I can.",
+                        "Hi there! I'm currently unavailable but will respond to your message soon.",
+                        "Hey! I've received your message and will reply when I'm available."
+                    )
+                    greetings.random()
+                }
+                isQuestion -> {
+                    val questionResponses = listOf(
+                        "Thanks for your question. I'll check and get back to you with an answer soon.",
+                        "I've received your question and will respond with the information when I'm available.",
+                        "Thanks for asking. I'll look into this and get back to you shortly."
+                    )
+                    questionResponses.random()
+                }
+                isThankYou -> {
+                    val thankYouResponses = listOf(
+                        "You're welcome! I'll be in touch soon if needed.",
+                        "No problem at all. I'll respond further when I'm available.",
+                        "Glad I could help. I'll follow up later if needed."
+                    )
+                    thankYouResponses.random()
+                }
+                isHelpRequest -> {
+                    val helpResponses = listOf(
+                        "I see you need some assistance. I'll help you with this as soon as I'm available.",
+                        "Thanks for reaching out about this issue. I'll get back to you with help soon.",
+                        "I understand you need help with this. I'll respond with assistance shortly."
+                    )
+                    helpResponses.random()
+                }
+                else -> {
+                    val generalResponses = listOf(
+                        "Thanks for your message. I'll get back to you as soon as I can.",
+                        "I've received your message and will respond when I'm available.",
+                        "Thanks for reaching out. I'll reply to your message soon."
+                    )
+                    generalResponses.random()
+                }
+            }
+            
+            // Add a personalized touch if we have context
+            val personalizedResponse = if (contextHint.isNotEmpty()) {
+                // Try to incorporate the context hint
+                "Thanks for your message about ${extractTopic(message)}. $response"
+            } else {
+                response
+            }
+            
+            Log.e(TAG, "✅ Generated context-aware response: $personalizedResponse")
+            return personalizedResponse
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error generating context-aware fallback: ${e.message}")
+            
+            // Ultimate fallback - very simple response that doesn't depend on any complex logic
+            return "Thanks for your message. I'll get back to you as soon as I can."
+        }
     }
     
     /**
@@ -615,6 +749,12 @@ class RcsAutoReplyManager(private val context: Context) {
         }
         
         try {
+            // Check if context is valid for LLM operations
+            if (!isContextValidForLLM()) {
+                Log.e(TAG, "⚠️ Context not valid for LLM, using fallback")
+                return ""
+            }
+            
             // Try MLC LLM approach
             try {
                 Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
@@ -738,9 +878,8 @@ class RcsAutoReplyManager(private val context: Context) {
                 e.printStackTrace()
             }
             
-            // All LLM approaches failed, don't use static templates
+            // All LLM approaches failed, return empty string to trigger fallback
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
-            Log.e(TAG, "⚠️ No response will be sent to avoid static templates")
             Log.e(TAG, "📚 END: Document-based response generation failed - all approaches")
             return ""
         } catch (e: Exception) {
@@ -1403,5 +1542,20 @@ class RcsAutoReplyManager(private val context: Context) {
         
         // Return empty string to indicate no response should be sent
         return ""
+    }
+    
+    /**
+     * Check if the context is valid for LLM operations
+     */
+    private fun isContextValidForLLM(): Boolean {
+        val isValid = context is ReactApplicationContext && mlcLlmModule != null
+        
+        if (!isValid) {
+            Log.e(TAG, "⚠️ Context is not valid for LLM operations")
+            Log.e(TAG, "⚠️ Context type: ${context.javaClass.name}")
+            Log.e(TAG, "⚠️ MLC LLM module: ${if (mlcLlmModule != null) "available" else "null"}")
+        }
+        
+        return isValid
     }
 } 
