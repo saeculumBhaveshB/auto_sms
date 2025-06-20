@@ -1041,8 +1041,7 @@ class RcsAutoReplyManager(private val context: Context) {
                             val content = file.readText()
                             val contentLength = content.length
                             totalChars += contentLength
-                            
-                            builder.append("--- Document: ${file.name} ---\n")
+                                                        
                             builder.append(content)
                             builder.append("\n\n")
                             
@@ -1057,8 +1056,7 @@ class RcsAutoReplyManager(private val context: Context) {
                                 if (pdfContent.isNotEmpty()) {
                                     val contentLength = pdfContent.length
                                     totalChars += contentLength
-                                    
-                                    builder.append("--- Document: ${file.name} ---\n")
+                                                                       
                                     builder.append(pdfContent)
                                     builder.append("\n\n")
                                     
