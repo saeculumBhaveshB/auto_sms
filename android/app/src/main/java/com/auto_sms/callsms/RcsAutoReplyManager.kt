@@ -206,22 +206,28 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "🧠 Attempting to generate response using MLC LLM directly")
             val mlcResponse = generateMlcLLMResponse(sender, messageToUse)
             if (mlcResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated dynamic response via MLC LLM: $mlcResponse")
+                // Add AI: prefix if not already present
+                val finalResponse = if (!mlcResponse.startsWith("AI:", ignoreCase = true)) {
+                    "AI: $mlcResponse"
+                } else {
+                    mlcResponse
+                }
+                
+                Log.e(TAG, "✅ Generated dynamic response via MLC LLM: $finalResponse")
                 Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
-                return mlcResponse
+                return finalResponse
             }
             
-            // If all approaches fail, return empty string to prevent sending static messages
+            // If all approaches fail, return fallback message
             Log.e(TAG, "❌❌❌ All dynamic response approaches failed")
-            Log.e(TAG, "❌❌❌ No response will be sent to avoid static templates")
-            Log.e(TAG, "🧠🧠🧠 END: NO DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
-            return ""
+            Log.e(TAG, "🧠🧠🧠 END: RETURNING FALLBACK MESSAGE 🧠🧠🧠")
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error generating dynamic response: ${e.message}")
             Log.e(TAG, "🧠🧠🧠 END: ERROR IN DYNAMIC RCS RESPONSE GENERATION 🧠🧠🧠")
-            // Return empty string to indicate no response should be sent
-            return ""
+            // Return fallback message on error
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
         }
     }
     
@@ -331,14 +337,14 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
             }
             
-            // If all LLM approaches fail, return empty string to prevent static responses
-            Log.e(TAG, "❌ All LLM approaches failed, returning empty string to prevent static responses")
-            Log.e(TAG, "🧠 END: generateMlcLLMResponse - NO RESPONSE")
-            return ""
+            // If all LLM approaches fail, return fallback message
+            Log.e(TAG, "❌ All LLM approaches failed, returning fallback message")
+            Log.e(TAG, "🧠 END: generateMlcLLMResponse - RETURNING FALLBACK MESSAGE")
+            return "Sorry I am not capable to give this answer. Please ask another question."
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error with MLC LLM approach: ${e.message}")
             Log.e(TAG, "🧠 END: generateMlcLLMResponse - ERROR")
-            return ""
+            return "Sorry I am not capable to give this answer. Please ask another question."
         }
     }
     
@@ -464,9 +470,11 @@ class RcsAutoReplyManager(private val context: Context) {
             return finalDocumentResponse
         }
         
-        // If all approaches fail, return null to indicate no response should be sent
-        Log.e(TAG, "❌ All response generation methods failed, no response will be sent")
-        return null
+        // If all approaches fail, return fallback message
+        Log.e(TAG, "❌ All response generation methods failed, returning fallback message")
+        val fallbackMessage = "AI: Sorry I am not capable to give this answer. Please ask another question."
+        addLogEntry(sender, message, fallbackMessage, true, true)
+        return fallbackMessage
     }
     
     /**
@@ -1129,7 +1137,7 @@ class RcsAutoReplyManager(private val context: Context) {
             val documentFiles = getDocumentsFromFileSystem()
             if (documentFiles.isEmpty()) {
                 Log.e(TAG, "❌ No document files found in file system")
-                return ""
+                return "AI: Sorry I am not capable to give this answer. Please ask another question."
             } else {
                 Log.e(TAG, "📚 Found ${documentFiles.size} documents in file system")
                 
@@ -1137,7 +1145,7 @@ class RcsAutoReplyManager(private val context: Context) {
                 val documentContent = extractDocumentContents(documentFiles)
                 if (documentContent.isEmpty()) {
                     Log.e(TAG, "❌ No content extracted from documents")
-                    return ""
+                    return "AI: Sorry I am not capable to give this answer. Please ask another question."
                 }
                 
                 Log.e(TAG, "📚 Extracted ${documentContent.length} characters from documents")
@@ -1190,10 +1198,17 @@ class RcsAutoReplyManager(private val context: Context) {
                         Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
                         
                         if (response != null && response.isNotEmpty()) {
-                            Log.e(TAG, "✅ MLC LLM generated document-based response (${response.length} chars): $response")
-                            addLogEntry(sender, receivedMessage, response, true, true)
+                            // Add AI: prefix if not already present
+                            val finalResponse = if (!response.startsWith("AI:", ignoreCase = true)) {
+                                "AI: $response"
+                            } else {
+                                response
+                            }
+                            
+                            Log.e(TAG, "✅ MLC LLM generated document-based response (${finalResponse.length} chars): $finalResponse")
+                            addLogEntry(sender, receivedMessage, finalResponse, true, true)
                             Log.e(TAG, "📚 END: Document-based response generation successful")
-                            return response
+                            return finalResponse
                         } else {
                             Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
                         }
@@ -1219,16 +1234,16 @@ class RcsAutoReplyManager(private val context: Context) {
                 }
             }
             
-            // If all approaches failed, return empty string
-            Log.e(TAG, "❌❌❌ All approaches failed, returning empty string")
+            // If all approaches failed, return fallback message
+            Log.e(TAG, "❌❌❌ All approaches failed, returning fallback message")
             Log.e(TAG, "📚 END: Document-based response generation failed - all approaches")
-            return ""
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in generateLLMResponseWithDocuments: ${e.message}")
             e.printStackTrace()
             Log.e(TAG, "📚 END: Document-based response generation failed with exception")
-            return ""
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
         }
     }
     
@@ -1248,7 +1263,7 @@ class RcsAutoReplyManager(private val context: Context) {
                 
             if (keywords.isEmpty()) {
                 Log.e(TAG, "❌ No keywords found in question")
-                return ""
+                return "AI: Sorry I am not capable to give this answer. Please ask another question."
             }
             
             Log.e(TAG, "🔑 Keywords: ${keywords.joinToString(", ")}")
@@ -1259,7 +1274,7 @@ class RcsAutoReplyManager(private val context: Context) {
                 
             if (paragraphs.isEmpty()) {
                 Log.e(TAG, "❌ No paragraphs found in document content")
-                return ""
+                return "AI: Sorry I am not capable to give this answer. Please ask another question."
             }
             
             // Score paragraphs by keyword matching
@@ -1280,12 +1295,12 @@ class RcsAutoReplyManager(private val context: Context) {
                 
             if (relevantParagraphs.isEmpty()) {
                 Log.e(TAG, "❌ No relevant paragraphs found")
-                return ""
+                return "AI: Sorry I am not capable to give this answer. Please ask another question."
             }
             
             // Construct response
             val response = StringBuilder()
-            response.append("Based on our documents, ")
+            response.append("AI: ")
             
             relevantParagraphs.forEachIndexed { index, paragraph ->
                 if (index > 0) {
@@ -1311,7 +1326,7 @@ class RcsAutoReplyManager(private val context: Context) {
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error generating fallback document response: ${e.message}")
-            return ""
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
         }
     }
     
@@ -1368,31 +1383,45 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "🧠 Attempting direct MLC LLM response")
             val mlcResponse = generateMlcLLMResponse(sender, messageToUse)
             if (mlcResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated direct MLC LLM response: $mlcResponse")
+                // Add AI: prefix if not already present
+                val finalResponse = if (!mlcResponse.startsWith("AI:", ignoreCase = true)) {
+                    "AI: $mlcResponse"
+                } else {
+                    mlcResponse
+                }
+                
+                Log.e(TAG, "✅ Generated direct MLC LLM response: $finalResponse")
                 Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE GENERATED SUCCESSFULLY 🔥🔥🔥")
-                return mlcResponse
+                return finalResponse
             }
             
             // Try reflection approach as another option
             Log.e(TAG, "🔄 Attempting reflection-based LLM response")
             val reflectionResponse = callReflectionLLM(sender, messageToUse)
             if (reflectionResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated reflection-based LLM response: $reflectionResponse")
+                // Add AI: prefix if not already present
+                val finalResponse = if (!reflectionResponse.startsWith("AI:", ignoreCase = true)) {
+                    "AI: $reflectionResponse"
+                } else {
+                    reflectionResponse
+                }
+                
+                Log.e(TAG, "✅ Generated reflection-based LLM response: $finalResponse")
                 Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE GENERATED SUCCESSFULLY 🔥🔥🔥")
-                return reflectionResponse
+                return finalResponse
             }
             
-            // If all LLM approaches fail, return empty string to prevent static responses
-            Log.e(TAG, "❌❌❌ All LLM approaches failed, returning empty string to prevent static responses")
-            Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE FAILED - ALL APPROACHES 🔥🔥🔥")
-            return ""
+            // If all LLM approaches fail, return fallback message
+            Log.e(TAG, "❌❌❌ All LLM approaches failed, returning fallback message")
+            Log.e(TAG, "🔥🔥🔥 END: RETURNING FALLBACK MESSAGE 🔥🔥🔥")
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error forcing dynamic response: ${e.message}")
             e.printStackTrace()
             Log.e(TAG, "🔥🔥🔥 END: DYNAMIC MLC LLM RESPONSE FAILED WITH EXCEPTION 🔥🔥🔥")
             
-            // Return empty string on error to prevent static messages
-            return ""
+            // Return fallback message on error
+            return "AI: Sorry I am not capable to give this answer. Please ask another question."
         }
     }
     
