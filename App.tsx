@@ -134,6 +134,15 @@ function App(): React.JSX.Element {
       try {
         console.log(`App initialization attempt #${initAttempts + 1}`);
 
+        // Request notification permission for Android 13+
+        const notificationPermissionResult =
+          await PermissionsService.requestNotificationPermissionAtLaunch();
+        console.log(
+          `Notification permission request result: ${
+            notificationPermissionResult ? "granted" : "denied"
+          }`
+        );
+
         // First, initialize SharedPreferences directly
         const prefsInitialized = await initializeSharedPreferences();
 

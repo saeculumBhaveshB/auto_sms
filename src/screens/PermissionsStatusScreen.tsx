@@ -183,6 +183,8 @@ const PermissionsStatusScreen: React.FC = () => {
       const isRequesting = status === "unavailable" && refreshing;
       // Check if this is the auto reply permission
       const isAutoReply = permission.key === "autoReply";
+      // Check if this is the notifications permission
+      const isNotifications = permission.key === "notifications";
 
       return (
         <View
@@ -190,6 +192,7 @@ const PermissionsStatusScreen: React.FC = () => {
           style={[
             styles.permissionItem,
             isAutoReply && styles.autoReplyPermissionItem,
+            isNotifications && styles.notificationsPermissionItem,
           ]}
         >
           <View style={styles.permissionDetails}>
@@ -197,10 +200,12 @@ const PermissionsStatusScreen: React.FC = () => {
               style={[
                 styles.permissionName,
                 isAutoReply && styles.autoReplyText,
+                isNotifications && styles.notificationsText,
               ]}
             >
               {permission.name}
               {isAutoReply && " ✓"}
+              {isNotifications && " 🔔"}
             </Text>
             <Text style={styles.permissionDescription}>
               {permission.description}
@@ -223,6 +228,7 @@ const PermissionsStatusScreen: React.FC = () => {
                 styles.grantButton,
                 isRequesting && styles.grantButtonDisabled,
                 isAutoReply && styles.autoReplyButton,
+                isNotifications && styles.notificationsButton,
               ]}
               onPress={() => requestPermission(permission.key)}
               disabled={isRequesting}
@@ -260,7 +266,7 @@ const PermissionsStatusScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* New Auto Reply Info Section */}
+        {/* Auto Reply Info Section */}
         <View style={styles.autoReplyInfoContainer}>
           <Text style={styles.autoReplyInfoTitle}>
             🔔 Auto Reply Permission (RECEIVE_SMS)
@@ -273,6 +279,23 @@ const PermissionsStatusScreen: React.FC = () => {
           </Text>
           <Text style={styles.autoReplyInfoHighlight}>
             AI responses are always enabled to provide the best user experience.
+          </Text>
+        </View>
+
+        {/* Notifications Info Section */}
+        <View style={styles.notificationsInfoContainer}>
+          <Text style={styles.notificationsInfoTitle}>
+            📱 Notifications Permission
+          </Text>
+          <Text style={styles.notificationsInfoText}>
+            The app needs notification permission to alert you about important
+            events such as missed calls, incoming messages, and auto-reply
+            status. This ensures you stay informed about the app's activities
+            even when it's running in the background.
+          </Text>
+          <Text style={styles.notificationsInfoHighlight}>
+            Notifications are essential for keeping you updated on auto-reply
+            activities.
           </Text>
         </View>
 
@@ -562,6 +585,45 @@ const styles = StyleSheet.create({
   autoReplyInfoHighlight: {
     fontSize: 14,
     color: "#1565c0",
+    lineHeight: 20,
+    fontWeight: "bold",
+    marginTop: 8,
+  },
+  notificationsPermissionItem: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#9c27b0",
+    backgroundColor: "#f3e5f5",
+  },
+  notificationsText: {
+    color: "#6a1b9a",
+  },
+  notificationsButton: {
+    backgroundColor: "#8e24aa",
+  },
+  notificationsInfoContainer: {
+    backgroundColor: "#f3e5f5",
+    padding: 16,
+    margin: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: "#9c27b0",
+  },
+  notificationsInfoTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#6a1b9a",
+    marginBottom: 8,
+  },
+  notificationsInfoText: {
+    fontSize: 14,
+    color: "#8e24aa",
+    lineHeight: 20,
+  },
+  notificationsInfoHighlight: {
+    fontSize: 14,
+    color: "#8e24aa",
     lineHeight: 20,
     fontWeight: "bold",
     marginTop: 8,

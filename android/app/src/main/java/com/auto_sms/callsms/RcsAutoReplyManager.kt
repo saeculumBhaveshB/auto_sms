@@ -1114,7 +1114,7 @@ class RcsAutoReplyManager(private val context: Context) {
             return ""
         }
     }
-
+    
     /**
      * Generate LLM response using document context (similar to SMS auto-reply)
      * This is the primary method for generating LLM responses
@@ -1163,42 +1163,42 @@ class RcsAutoReplyManager(private val context: Context) {
                         Log.e(TAG, "📞 Found phone number: $phoneNumber")
                         return "AI: $phoneNumber"
                     }
+            }
+            
+            // Try MLC LLM approach
+            try {
+                Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
+                if (mlcLlmModule == null) {
+                    Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
+                    if (this.context is ReactApplicationContext) {
+                        Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
+                        mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
+                        try {
+                            Log.e(TAG, "🧠 Initializing MLC LLM module")
+                            isMLCInitialized = mlcLlmModule?.initialize() ?: false
+                            Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
+                        }
+                    } else {
+                        Log.e(TAG, "⚠️ Context is not ReactApplicationContext, will try alternative approaches")
+                    }
                 }
                 
-                // Try MLC LLM approach
-                try {
-                    Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
-                    if (mlcLlmModule == null) {
-                        Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
-                        if (this.context is ReactApplicationContext) {
-                            Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
-                            mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
-                            try {
-                                Log.e(TAG, "🧠 Initializing MLC LLM module")
-                                isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                                Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
-                            }
-                        } else {
-                            Log.e(TAG, "⚠️ Context is not ReactApplicationContext, will try alternative approaches")
-                        }
-                    }
-                    
-                    // If MLC module is available, use it
-                    if (mlcLlmModule != null) {
+                // If MLC module is available, use it
+                if (mlcLlmModule != null) {
                         // Analyze the question to determine what information is being requested
                         val questionAnalysis = analyzeQuestion(receivedMessage)
                         Log.e(TAG, "🔍 Question analysis: $questionAnalysis")
                         
                         // Create a more targeted prompt based on question analysis
                         val prompt = "Generate a focused, relevant answer to this specific question based only on the document content."
-                        Log.e(TAG, "✏️ Document-based prompt: $prompt")
-                        
-                        val mlcContext = if (contextMessage.isNotEmpty()) {
-                            "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                    Log.e(TAG, "✏️ Document-based prompt: $prompt")
+                    
+                    val mlcContext = if (contextMessage.isNotEmpty()) {
+                        "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
                             "Your task is to provide a concise, focused answer that addresses ONLY what was asked. " +
-                            "Consider this context for your response: \"$contextMessage\". " +
+                        "Consider this context for your response: \"$contextMessage\". " +
                             "Document content: \"$documentContent\". " +
                             "IMPORTANT INSTRUCTIONS: " +
                             "1. Only answer what was specifically asked - if they ask for a name, only provide the name. " +
@@ -1214,8 +1214,8 @@ class RcsAutoReplyManager(private val context: Context) {
                             "11. If they ask for a contact number or phone number, ONLY provide the phone number, not address or other details." +
                             "12. If they ask for an address, ONLY provide the address, not phone number or other details." +
                             "13. Be extremely precise - respond with exactly what was asked for, nothing more."
-                        } else {
-                            "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                    } else {
+                        "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
                             "Your task is to provide a concise, focused answer that addresses ONLY what was asked. " +
                             "Document content: \"$documentContent\". " +
                             "IMPORTANT INSTRUCTIONS: " +
@@ -1232,18 +1232,18 @@ class RcsAutoReplyManager(private val context: Context) {
                             "11. If they ask for a contact number or phone number, ONLY provide the phone number, not address or other details." +
                             "12. If they ask for an address, ONLY provide the address, not phone number or other details." +
                             "13. Be extremely precise - respond with exactly what was asked for, nothing more."
-                        }
-                        Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
-                        
-                        Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for document-based response")
-                        val startTime = System.currentTimeMillis()
-                        val response = runBlocking { 
-                            mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
-                        }
-                        val endTime = System.currentTimeMillis()
-                        Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
-                        
-                        if (response != null && response.isNotEmpty()) {
+                    }
+                    Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
+                    
+                    Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for document-based response")
+                    val startTime = System.currentTimeMillis()
+                    val response = runBlocking { 
+                        mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
+                    }
+                    val endTime = System.currentTimeMillis()
+                    Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
+                    
+                    if (response != null && response.isNotEmpty()) {
                             // Add AI: prefix if not already present
                             val finalResponse = if (!response.startsWith("AI:", ignoreCase = true)) {
                                 "AI: $response"
@@ -1253,19 +1253,19 @@ class RcsAutoReplyManager(private val context: Context) {
                             
                             Log.e(TAG, "✅ MLC LLM generated document-based response (${finalResponse.length} chars): $finalResponse")
                             addLogEntry(sender, receivedMessage, finalResponse, true, true)
-                            Log.e(TAG, "📚 END: Document-based response generation successful")
+                        Log.e(TAG, "📚 END: Document-based response generation successful")
                             return finalResponse
-                        } else {
-                            Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
-                        }
                     } else {
-                        Log.e(TAG, "⚠️ MLC LLM module is null, trying alternative approaches")
+                        Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error with MLC LLM document-based approach: ${e.message}")
-                    e.printStackTrace()
+                } else {
+                    Log.e(TAG, "⚠️ MLC LLM module is null, trying alternative approaches")
                 }
-                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error with MLC LLM document-based approach: ${e.message}")
+                e.printStackTrace()
+            }
+            
                 // If we have document content but MLC failed, use an improved fallback approach
                 try {
                     Log.e(TAG, "🔄 Using improved fallback document-based approach")
@@ -1548,7 +1548,7 @@ class RcsAutoReplyManager(private val context: Context) {
                 }
                 
                 responseBuilder.toString()
-            } else {
+                    } else {
                 // Fall back to using whole paragraphs if no specific sentences were found
                 val responseBuilder = StringBuilder("AI: ")
                 
