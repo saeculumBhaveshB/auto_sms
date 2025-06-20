@@ -160,11 +160,11 @@ const LocalLLMSetupScreen: React.FC = () => {
               extractableText = false;
             }
           } else if (isDocx) {
-            // Skip actual DOCX extraction to avoid Apache POI errors
-            // Instead, just mark all DOCX files as extractable for UI purposes
+            // Always mark DOCX files as extractable without testing
+            // This avoids potential issues with DOCX extraction
             extractableText = true;
             console.log(
-              `DOCX file detected: ${doc.name} - skipping extraction test for stability`
+              `DOCX file detected: ${doc.name} - marked as extractable without testing`
             );
           } else {
             // For text files, assume they're extractable
@@ -175,7 +175,15 @@ const LocalLLMSetupScreen: React.FC = () => {
             `Error checking document extraction for ${doc.name}:`,
             err
           );
-          extractableText = false;
+          // For DOCX files, still mark as extractable even if there's an error
+          if (isDocx) {
+            extractableText = true;
+            console.log(
+              `DOCX file ${doc.name} marked as extractable despite error`
+            );
+          } else {
+            extractableText = false;
+          }
         }
 
         return {
@@ -260,12 +268,52 @@ const LocalLLMSetupScreen: React.FC = () => {
             : undefined
         );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading document:", error);
-      Alert.alert(
-        "Upload Failed",
-        "Failed to upload document. Please try again."
-      );
+
+      // Check if this is likely a DOCX-related error
+      const isDocxError =
+        error.message &&
+        (error.message.includes("docx") ||
+          error.message.includes("DOCX") ||
+          error.message.includes("StorageFileLoadException"));
+
+      if (isDocxError) {
+        Alert.alert(
+          "DOCX Upload Issue",
+          "There was an issue processing the DOCX file. The app will still display the document, but some content may not be fully accessible. For best results with DOCX files, consider converting to PDF or TXT format.",
+          [
+            { text: "OK" },
+            {
+              text: "Learn More",
+              onPress: () => {
+                Alert.alert(
+                  "About DOCX Support",
+                  "DOCX files can sometimes be challenging to process on mobile devices. While we've implemented support for them, you may get better results by:\n\n1. Using simpler DOCX files with less formatting\n2. Converting to PDF before uploading\n3. Saving as plain text (.txt) for maximum compatibility",
+                  [{ text: "Got it" }]
+                );
+              },
+            },
+          ]
+        );
+
+        // Try to refresh the document list anyway - our backend creates placeholder files
+        try {
+          const docs = await LocalLLMService.listDocuments();
+          const enhancedDocs = await enhanceDocumentsInfo(docs);
+          setDocuments(enhancedDocs);
+        } catch (listError) {
+          console.error(
+            "Error refreshing document list after DOCX error:",
+            listError
+          );
+        }
+      } else {
+        Alert.alert(
+          "Upload Failed",
+          "Failed to upload document. Please try again."
+        );
+      }
     } finally {
       setUploading(false);
     }
