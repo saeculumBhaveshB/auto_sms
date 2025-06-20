@@ -1152,6 +1152,19 @@ class RcsAutoReplyManager(private val context: Context) {
                 
                 Log.e(TAG, "📚 Extracted ${documentContent.length} characters from documents")
                 
+                // Special handling for contact number questions
+                val questionType = analyzeQuestion(receivedMessage)
+                Log.e(TAG, "🔍 Question type: $questionType")
+                
+                if (questionType == "CONTACT_NUMBER") {
+                    Log.e(TAG, "📞 Detected contact number question, using special handler")
+                    val phoneNumber = extractPhoneNumber(documentContent)
+                    if (phoneNumber.isNotEmpty()) {
+                        Log.e(TAG, "📞 Found phone number: $phoneNumber")
+                        return "AI: $phoneNumber"
+                    }
+                }
+                
                 // Try MLC LLM approach
                 try {
                     Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
@@ -1193,7 +1206,14 @@ class RcsAutoReplyManager(private val context: Context) {
                             "3. Do not copy-paste entire paragraphs - extract and synthesize the relevant information. " +
                             "4. If the answer isn't in the documents, say you don't have that information. " +
                             "5. Keep your response brief and directly relevant to the question. " +
-                            "6. Format your answer in a conversational, helpful tone."
+                            "6. Format your answer in a conversational, helpful tone." +
+                            "7. NEVER include information that wasn't asked for. " +
+                            "8. ONLY answer based on the document content. " +
+                            "9. If multiple pieces of information are requested, organize them clearly. " +
+                            "10. Focus on extracting exact values, names, or specific details that answer the question." +
+                            "11. If they ask for a contact number or phone number, ONLY provide the phone number, not address or other details." +
+                            "12. If they ask for an address, ONLY provide the address, not phone number or other details." +
+                            "13. Be extremely precise - respond with exactly what was asked for, nothing more."
                         } else {
                             "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
                             "Your task is to provide a concise, focused answer that addresses ONLY what was asked. " +
@@ -1204,7 +1224,14 @@ class RcsAutoReplyManager(private val context: Context) {
                             "3. Do not copy-paste entire paragraphs - extract and synthesize the relevant information. " +
                             "4. If the answer isn't in the documents, say you don't have that information. " +
                             "5. Keep your response brief and directly relevant to the question. " +
-                            "6. Format your answer in a conversational, helpful tone."
+                            "6. Format your answer in a conversational, helpful tone." +
+                            "7. NEVER include information that wasn't asked for. " +
+                            "8. ONLY answer based on the document content. " +
+                            "9. If multiple pieces of information are requested, organize them clearly. " +
+                            "10. Focus on extracting exact values, names, or specific details that answer the question." +
+                            "11. If they ask for a contact number or phone number, ONLY provide the phone number, not address or other details." +
+                            "12. If they ask for an address, ONLY provide the address, not phone number or other details." +
+                            "13. Be extremely precise - respond with exactly what was asked for, nothing more."
                         }
                         Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
                         
@@ -1275,17 +1302,30 @@ class RcsAutoReplyManager(private val context: Context) {
         
         // Identify question type
         return when {
+            // Very specific contact number questions
+            lowerQuestion.contains("contact number") || 
+            lowerQuestion.contains("phone number") || 
+            lowerQuestion.contains("mobile number") ||
+            lowerQuestion.contains("number please") ||
+            lowerQuestion.contains("your number") -> "CONTACT_NUMBER"
+            
+            // Address-specific questions
+            lowerQuestion.contains("address") ||
+            lowerQuestion.contains("location") ||
+            lowerQuestion.contains("where are you") ||
+            lowerQuestion.contains("where is your") -> "ADDRESS"
+            
             // Questions about identity
             lowerQuestion.contains("who") || 
             lowerQuestion.contains("name") || 
             lowerQuestion.contains("company") || 
             lowerQuestion.contains("business") -> "IDENTITY"
             
-            // Questions about contact information
+            // General contact information
             lowerQuestion.contains("contact") || 
             lowerQuestion.contains("email") || 
             lowerQuestion.contains("phone") || 
-            lowerQuestion.contains("address") || 
+            lowerQuestion.contains("reach you") || 
             lowerQuestion.contains("website") -> "CONTACT"
             
             // Questions about pricing
@@ -1726,6 +1766,53 @@ class RcsAutoReplyManager(private val context: Context) {
         }
         
         return true
+    }
+
+    /**
+     * Extract phone number from document content
+     * Used for targeted responses to contact number questions
+     */
+    private fun extractPhoneNumber(documentContent: String): String {
+        try {
+            // Look for common phone number patterns
+            val phonePatterns = listOf(
+                // Mobile: +91 90165 88354 pattern
+                Regex("(?i)mobile:?\\s*([+]?[0-9][0-9\\s-]{8,14})"),
+                // Contact: +91 90165 88354 pattern
+                Regex("(?i)contact:?\\s*([+]?[0-9][0-9\\s-]{8,14})"),
+                // Phone: +91 90165 88354 pattern
+                Regex("(?i)phone:?\\s*([+]?[0-9][0-9\\s-]{8,14})"),
+                // +91 90165 88354 pattern (standalone)
+                Regex("([+]?[0-9][0-9\\s-]{8,14})")
+            )
+            
+            // Try each pattern
+            for (pattern in phonePatterns) {
+                val matchResult = pattern.find(documentContent)
+                if (matchResult != null) {
+                    // If the pattern has a group, use it, otherwise use the whole match
+                    val phoneNumber = if (matchResult.groupValues.size > 1) {
+                        matchResult.groupValues[1].trim()
+                    } else {
+                        matchResult.value.trim()
+                    }
+                    
+                    // Clean up the phone number
+                    val cleanedNumber = phoneNumber.replace(Regex("\\s+"), " ").trim()
+                    
+                    if (cleanedNumber.isNotEmpty()) {
+                        Log.e(TAG, "📞 Extracted phone number: $cleanedNumber")
+                        return cleanedNumber
+                    }
+                }
+            }
+            
+            Log.e(TAG, "📞 No phone number found in document content")
+            return ""
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error extracting phone number: ${e.message}")
+            return ""
+        }
     }
 
     /**
