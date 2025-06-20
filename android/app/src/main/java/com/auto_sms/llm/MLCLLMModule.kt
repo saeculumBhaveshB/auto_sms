@@ -35,20 +35,6 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         Log.e(TAG, "🧠 Initializing MLC LLM")
         
         try {
-            // Check shared preference to see if we should create test documents
-            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
-            
-            // Only create test documents if explicitly enabled in preferences
-            if (shouldCreateTestDocs) {
-                createTestDocuments()
-            } else {
-                Log.e(TAG, "📝 Skipping creation of test documents (disabled in preferences)")
-            }
-            
-            // For now, we'll use a simulated model for testing
-            Log.e(TAG, "🧠 Using simulated model for document-based responses")
-            
             // Set up fallback mode
             modelPath = reactContext.filesDir.absolutePath
             modelId = "simulated_model"
@@ -980,90 +966,5 @@ class MLCLLMModule(private val reactContext: ReactApplicationContext) {
         }
         
         return hasInterp
-    }
-    
-    /**
-     * Create test documents for document-based responses
-     */
-    private fun createTestDocuments() {
-        try {
-            // Check shared preference again as a double-check
-            val sharedPrefs = reactContext.getSharedPreferences("AutoSmsPrefs", Context.MODE_PRIVATE)
-            val shouldCreateTestDocs = sharedPrefs.getBoolean("createSampleDocuments", false)
-            
-            if (!shouldCreateTestDocs) {
-                Log.e(TAG, "📝 Skipping test document creation (disabled in preferences)")
-                return
-            }
-            
-            Log.e(TAG, "📝 Creating test documents for document-based responses")
-            
-            val documentsDir = File(reactContext.filesDir, "documents")
-            if (!documentsDir.exists()) {
-                documentsDir.mkdirs()
-                Log.e(TAG, "📁 Created documents directory at ${documentsDir.absolutePath}")
-            }
-            
-            // List existing documents
-            val existingDocs = documentsDir.listFiles()
-            Log.e(TAG, "📚 Existing documents: ${existingDocs?.joinToString(", ") { it.name } ?: "none"}")
-            
-            // Only create test documents if none exist
-            if (existingDocs == null || existingDocs.isEmpty()) {
-                // Create a test pricing document
-                val pricingContent = """
-                    Product Pricing Information
-                    
-                    Our premium plan costs $29.99 per month and includes unlimited SMS auto-replies.
-                    The basic plan is $9.99 per month with limited features.
-                    Enterprise plans start at $99 per month with custom features.
-                    
-                    All plans include:
-                    - 24/7 customer support
-                    - Web dashboard access
-                    - Mobile app access
-                    
-                    Contact customer support at support@example.com for more information.
-                """.trimIndent()
-                
-                val pricingFile = File(documentsDir, "pricing_info.txt")
-                FileOutputStream(pricingFile).use { out ->
-                    out.write(pricingContent.toByteArray())
-                }
-                
-                // Create a test FAQ document
-                val faqContent = """
-                    Frequently Asked Questions
-                    
-                    Q: How do I set up auto-replies?
-                    A: To set up auto-replies, go to Settings > Auto-Reply > Enable, then customize your messages.
-                    
-                    Q: Can I schedule auto-replies for specific times?
-                    A: Yes, in the premium plan you can set time-based rules for auto-replies.
-                    
-                    Q: Does the app work with RCS messaging?
-                    A: Yes, our app fully supports RCS messaging and standard SMS.
-                    
-                    Q: How do I cancel my subscription?
-                    A: You can cancel your subscription from the Account section in Settings.
-                    
-                    Q: Can I use custom templates?
-                    A: Premium and Enterprise plans support custom templates and dynamic responses.
-                """.trimIndent()
-                
-                val faqFile = File(documentsDir, "faq.txt")
-                FileOutputStream(faqFile).use { out ->
-                    out.write(faqContent.toByteArray())
-                }
-                
-                Log.e(TAG, "✅ Created test documents at ${documentsDir.absolutePath}")
-                Log.e(TAG, "✅ Files: ${documentsDir.listFiles()?.joinToString(", ") { it.name } ?: "none"}")
-            } else {
-                Log.e(TAG, "✅ Using existing documents in ${documentsDir.absolutePath}")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error creating test documents: ${e.message}")
-        }
     }
 } 

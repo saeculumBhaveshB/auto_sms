@@ -298,12 +298,9 @@ class LocalLLMService {
   }
 
   /**
-   * Pick a document and upload it
-   * @param createDefault Whether this is a default document (default: true for user-selected files)
+   * Pick and upload a document
    */
-  async pickAndUploadDocument(
-    createDefault: boolean = true
-  ): Promise<DocumentInfo | null> {
+  async pickAndUploadDocument(): Promise<DocumentInfo | null> {
     try {
       if (!isNativeModuleAvailable()) {
         console.warn(
@@ -326,15 +323,13 @@ class LocalLLMService {
         const document = results[0];
         const filename = document.name || `document_${Date.now()}`;
 
-        console.log(
-          `Uploading document: ${filename} with createDefault=${createDefault}`
-        );
+        console.log(`Uploading document: ${filename} with createDefault=false`);
 
-        // Upload to native storage - pass the createDefault parameter
+        // Upload to native storage - always pass false for createDefault
         const result = await LocalLLMModule.uploadDocument(
           document.uri,
           filename,
-          createDefault
+          false
         );
         return result;
       }
@@ -460,14 +455,10 @@ class LocalLLMService {
   }
 
   /**
-   * Create a sample document for testing
-   * @param content The content for the sample document
-   * @param createDefault Whether to create a default sample document (default: false)
+   * Create a document from text content
+   * @param content The content for the document
    */
-  async createSampleDocument(
-    content: string,
-    createDefault: boolean = false
-  ): Promise<string | null> {
+  async createSampleDocument(content: string): Promise<string | null> {
     try {
       if (!isNativeModuleAvailable()) {
         console.warn(
@@ -477,7 +468,7 @@ class LocalLLMService {
       }
 
       // Create a temporary file name
-      const fileName = `sample_document_${Date.now()}.txt`;
+      const fileName = `text_document_${Date.now()}.txt`;
 
       // Use React Native's FileSystem to write content to a temp file
       const tempPath = `${RNFS.CachesDirectoryPath}/${fileName}`;
@@ -486,13 +477,13 @@ class LocalLLMService {
       await RNFS.writeFile(tempPath, content, "utf8");
 
       // Now upload this file as a document
-      console.log("Uploading sample document from:", tempPath);
+      console.log("Uploading text document from:", tempPath);
 
-      // Pass the createDefault parameter to the native module
+      // Always pass false for createDefault
       const result = await LocalLLMModule.uploadDocument(
         `file://${tempPath}`,
         fileName,
-        createDefault
+        false
       );
 
       // Clean up temp file
@@ -500,7 +491,7 @@ class LocalLLMService {
 
       return result?.path || null;
     } catch (error) {
-      console.error("Error creating sample document:", error);
+      console.error("Error creating text document:", error);
       return null;
     }
   }

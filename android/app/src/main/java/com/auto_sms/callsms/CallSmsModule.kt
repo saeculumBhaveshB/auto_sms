@@ -30,6 +30,7 @@ import java.util.Timer
 import java.util.TimerTask
 import kotlinx.coroutines.runBlocking
 import com.auto_sms.docextractor.DocExtractorHelper
+// RcsAutoReplyManager is in the same package, no import needed
 
 class CallSmsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -3025,4 +3026,18 @@ class CallSmsModule(reactContext: ReactApplicationContext) :
     /**
      * Test RCS SMS reply functionality
      */
+    @ReactMethod
+    fun testDocumentLLM(promise: Promise) {
+        try {
+            Log.e(TAG, "🧪 Testing document access and LLM response generation")
+            val rcsManager = RcsAutoReplyManager(reactApplicationContext)
+            val result = rcsManager.testDocumentAccess()
+            Log.e(TAG, "✅ Test result: $result")
+            promise.resolve(result)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error testing document access: ${e.message}")
+            e.printStackTrace()
+            promise.reject("TEST_DOCUMENT_ERROR", "Failed to test document access: ${e.message}")
+        }
+    }
 } 

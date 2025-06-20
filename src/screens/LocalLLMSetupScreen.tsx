@@ -313,6 +313,58 @@ const LocalLLMSetupScreen: React.FC = () => {
     );
   };
 
+  // Test PDF extraction from uploaded documents
+  const testPdfExtraction = async () => {
+    try {
+      setIsLoading(true);
+
+      // Find PDF documents
+      const pdfDocs = documents.filter((doc) => doc.isPdf);
+
+      if (pdfDocs.length === 0) {
+        Alert.alert(
+          "No PDF Documents",
+          "No PDF documents found. Please upload a PDF document first."
+        );
+        return;
+      }
+
+      // Test extraction for each PDF
+      let results = "";
+      for (const doc of pdfDocs) {
+        try {
+          console.log(`Testing PDF extraction for ${doc.name}`);
+          const extractionResult = await CallSmsModule.testPdfExtraction(
+            doc.path
+          );
+
+          if (extractionResult && extractionResult.success) {
+            const textPreview =
+              extractionResult.text?.substring(0, 200) + "...";
+            results += `✅ ${doc.name}: Extraction successful\n${textPreview}\n\n`;
+          } else {
+            results += `❌ ${doc.name}: Extraction failed\n`;
+          }
+        } catch (err: any) {
+          console.error(`Error testing extraction for ${doc.name}:`, err);
+          results += `❌ ${doc.name}: Error - ${
+            err.message || "Unknown error"
+          }\n`;
+        }
+      }
+
+      Alert.alert(
+        "PDF Extraction Test Results",
+        results || "No results returned"
+      );
+    } catch (error) {
+      console.error("Error testing PDF extraction:", error);
+      Alert.alert("Error", "Failed to test PDF extraction.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle model loading/unloading
   const toggleModelLoading = async () => {
     try {
@@ -401,14 +453,8 @@ const LocalLLMSetupScreen: React.FC = () => {
     try {
       setSavingText(true);
 
-      // Generate a filename with timestamp to ensure uniqueness
-      const fileName = `text_document_${Date.now()}.txt`;
-
       // Save the text as a document
-      const result = await LocalLLMService.createSampleDocument(
-        textInputValue,
-        true
-      );
+      const result = await LocalLLMService.createSampleDocument(textInputValue);
 
       if (result) {
         // Clear the text input
@@ -609,6 +655,15 @@ const LocalLLMSetupScreen: React.FC = () => {
                 <ActivityIndicator size="small" color="#2196f3" />
                 <Text style={styles.statusText}>Uploading document...</Text>
               </View>
+            )}
+
+            {documents.some((doc) => doc.isPdf) && (
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={testPdfExtraction}
+              >
+                <Text style={styles.buttonText}>Test PDF Extraction</Text>
+              </TouchableOpacity>
             )}
 
             <Text style={styles.listHeader}>
@@ -1095,6 +1150,14 @@ const styles = StyleSheet.create({
   },
   txtTag: {
     backgroundColor: "#ff9800",
+  },
+  testButton: {
+    backgroundColor: "#4caf50",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+    alignItems: "center",
+    marginBottom: 16,
   },
 });
 

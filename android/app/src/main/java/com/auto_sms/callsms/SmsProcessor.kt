@@ -22,9 +22,34 @@ class SmsProcessor {
         }
         
         // Generate response using LLM
-        private suspend fun generateLlmResponse(context: Context, messageBody: String): String {
-            // Implementation for LLM response generation
-            return "Thank you for your message. I'm currently unavailable and testing RCS compatibility. I'll get back to you soon."
+        private suspend fun generateLlmResponse(context: Context, phoneNumber: String, messageBody: String): String {
+            // Use RcsAutoReplyManager to generate document-based responses
+            try {
+                Log.e(TAG, "🧠 Using RcsAutoReplyManager to generate LLM response")
+                val rcsManager = RcsAutoReplyManager(context)
+                
+                // Try to get a document-based response
+                val response = rcsManager.getDefaultMessage(phoneNumber, messageBody)
+                if (response.isNotBlank()) {
+                    Log.e(TAG, "✅ Generated document-based response: $response")
+                    return response
+                }
+                
+                // If that fails, try direct document processing
+                Log.e(TAG, "🔄 Trying direct document processing")
+                val documentResponse = rcsManager.generateLLMResponseWithDocuments(phoneNumber, messageBody)
+                if (documentResponse.isNotBlank()) {
+                    Log.e(TAG, "✅ Generated document-based response: $documentResponse")
+                    return documentResponse
+                }
+                
+                // If all approaches fail, return empty string to prevent static responses
+                Log.e(TAG, "⚠️ No document-based response could be generated")
+                return ""
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error generating LLM response: ${e.message}")
+                return ""
+            }
         }
         
         // Save conversation to database
@@ -65,18 +90,20 @@ class SmsProcessor {
                         // Log the LLM request
                         Log.e(TAG, "🧠 Requesting LLM response for message from $normalizedPhoneNumber")
                         
-                        val response = generateLlmResponse(context, messageBody)
+                        val response = generateLlmResponse(context, normalizedPhoneNumber, messageBody)
+                        if (response.isBlank()) {
+                            Log.e(TAG, "⚠️ No document-based response generated, skipping reply")
+                            return
+                        }
+                        
                         Log.e(TAG, "✅ LLM response generated successfully: $response")
                         response
                     } catch (e: Exception) {
                         // Log the LLM failure
                         Log.e(TAG, "❌ Failed to generate LLM response: ${e.message}")
                         Log.e(TAG, "Stack trace: ${e.stackTraceToString()}")
-                        
-                        // Use fallback message
-                        val fallbackMsg = "I'm currently unavailable. I'll get back to you as soon as possible."
-                        Log.e(TAG, "⚠️ Using fallback message: $fallbackMsg")
-                        fallbackMsg
+                        Log.e(TAG, "⚠️ No response will be sent")
+                        return
                     }
                     
                     // Send the response

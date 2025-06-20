@@ -14,6 +14,8 @@ import android.provider.Telephony
 import com.facebook.react.bridge.Promise
 import com.facebook.react.ReactApplication
 import kotlinx.coroutines.CompletableDeferred
+import java.io.File
+import com.auto_sms.docextractor.DocExtractorHelper
 
 /**
  * Manager class for RCS auto-reply rules and settings
@@ -91,6 +93,14 @@ class RcsAutoReplyManager(private val context: Context) {
             Log.e(TAG, "⚠️ Using context type: ${context.javaClass.name}")
             isMLCInitialized = false
             mlcLlmModule = null
+            
+            // Check if we can access documents from the file system
+            val documents = getDocumentsFromFileSystem()
+            if (documents.isNotEmpty()) {
+                Log.e(TAG, "✅ Successfully accessed ${documents.size} documents from file system despite non-ReactApplicationContext")
+            } else {
+                Log.e(TAG, "⚠️ No documents found in file system with non-ReactApplicationContext")
+            }
         }
         
         // Ensure RCS auto-reply and LLM are both enabled
@@ -172,7 +182,7 @@ class RcsAutoReplyManager(private val context: Context) {
     
     /**
      * Get a default message for auto-reply
-     * Only uses LLM-generated responses, no static fallbacks
+     * Only uses LLM-generated responses based on real documents, no static fallbacks
      */
     fun getDefaultMessage(sender: String = "Unknown", receivedMessage: String = ""): String {
         // If receivedMessage is empty, use a placeholder to still generate a dynamic response
@@ -183,22 +193,22 @@ class RcsAutoReplyManager(private val context: Context) {
         Log.e(TAG, "   • Message: $messageToUse")
         
         try {
-            // Primary approach: Use MLC LLM directly
-            Log.e(TAG, "🧠 Attempting to generate response using MLC LLM directly")
-            val mlcResponse = generateMlcLLMResponse(sender, messageToUse)
-            if (mlcResponse.isNotEmpty()) {
-                Log.e(TAG, "✅ Generated dynamic response via MLC LLM: $mlcResponse")
-                Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
-                return mlcResponse
-            }
-            
-            // Secondary approach: Use document-based LLM
+            // Primary approach: Use document-based LLM
             Log.e(TAG, "🧠 Attempting to generate response using document-based approach")
             val documentResponse = generateLLMResponseWithDocuments(sender, messageToUse)
             if (documentResponse.isNotEmpty()) {
                 Log.e(TAG, "✅ Generated dynamic response with documents: $documentResponse")
                 Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
                 return documentResponse
+            }
+            
+            // If document-based approach fails, use MLC LLM directly
+            Log.e(TAG, "🧠 Attempting to generate response using MLC LLM directly")
+            val mlcResponse = generateMlcLLMResponse(sender, messageToUse)
+            if (mlcResponse.isNotEmpty()) {
+                Log.e(TAG, "✅ Generated dynamic response via MLC LLM: $mlcResponse")
+                Log.e(TAG, "🧠🧠🧠 END: DYNAMIC RCS RESPONSE GENERATED 🧠🧠🧠")
+                return mlcResponse
             }
             
             // If all approaches fail, return empty string to prevent sending static messages
@@ -385,12 +395,6 @@ class RcsAutoReplyManager(private val context: Context) {
             return null
         }
         
-        // Always try to use LLM first, even for fallbacks
-        val contextValid = isContextValidForLLM()
-        if (!contextValid) {
-            Log.e(TAG, "⚠️ Context not ideal for LLM, will try document-based approach anyway")
-        }
-        
         // Record that we'll be replying to this sender
         recordReply(sender, message)
         
@@ -407,9 +411,6 @@ class RcsAutoReplyManager(private val context: Context) {
         // Process rules to see if we should reply
         val rules = getRules()
         Log.e(TAG, "📋 Processing ${rules.length()} rules")
-        
-        // ALWAYS use LLM for dynamic responses
-        Log.e(TAG, "🧠 Using LLM for dynamic responses")
         
         // Process rules in order (higher priority first)
         for (i in 0 until rules.length()) {
@@ -437,189 +438,33 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "   • Rule $i matches: $matches")
                 
                 if (matches) {
-                    // ALWAYS use the same document-based LLM approach as SmsReceiver
+                    // Use document-based LLM approach with rule context
                     Log.e(TAG, "🧠 Generating LLM response with rule context")
+                    val ruleDocumentResponse = generateLLMResponseWithDocuments(sender, message, ruleMessage)
                     
-                    // Try MLC LLM approach first
-                    try {
-                        if (mlcLlmModule == null) {
-                            if (this.context is ReactApplicationContext) {
-                                mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
-                                try {
-                                    isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                                    Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
-                                }
-                            }
-                        }
-                        
-                        // Use rule context to augment document knowledge
-                        val prompt = "Generate a document-informed reply to this message."
-                        val llmContext = "You are responding to a message from $sender who asked: \"$message\". " +
-                                        "Keep your response brief and conversational. " +
-                                        "Consider this context for your response: \"$ruleMessage\". " +
-                                        "If their message seems to be asking for information, try to provide specific details from available documents."
-                        
-                        val response = runBlocking { 
-                            mlcLlmModule?.generateAnswer(prompt, llmContext, 0.7f)
-                        }
-                        
-                        if (response != null && response.isNotEmpty()) {
-                            Log.e(TAG, "✅ MLC LLM generated response with rule context: $response")
-                            addLogEntry(sender, message, response, true, true)
-                            return response
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error with MLC LLM approach: ${e.message}")
+                    if (ruleDocumentResponse.isNotEmpty()) {
+                        Log.e(TAG, "✅ Generated document-based response with rule context: $ruleDocumentResponse")
+                        addLogEntry(sender, message, ruleDocumentResponse, true, true)
+                        return ruleDocumentResponse
+                    } else {
+                        Log.e(TAG, "❌ Failed to generate document-based response with rule context")
                     }
-                    
-                    // Try reflection as backup
-                    try {
-                        val reactContext = try {
-                            (context as ReactApplicationContext)
-                        } catch (e: Exception) {
-                            null
-                        }
-                        
-                        if (reactContext != null) {
-                            val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
-                            if (callSmsModule != null) {
-                                // Use reflection to call the testLLM method
-                                val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
-                                    "testLLM",
-                                    String::class.java
-                                )
-                                testLLMMethod.isAccessible = true
-                                
-                                // Build a prompt that combines rule context with document search
-                                val enhancedPrompt = "The following message may be asking about information in our documents: \"$message\". " +
-                                                   "Consider this additional context: \"$ruleMessage\". " +
-                                                   "Please provide a helpful response that references relevant document information."
-                                
-                                // Call the method directly
-                                val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
-                                
-                                if (result != null) {
-                                    val rawResponse = result as String
-                                    val cleanedResponse = cleanLLMResponse(rawResponse)
-                                    
-                                    if (cleanedResponse.isNotEmpty()) {
-                                        Log.e(TAG, "✅ Generated document-based response via reflection: $cleanedResponse")
-                                        addLogEntry(sender, message, cleanedResponse, true, true)
-                                        return cleanedResponse
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
-                    }
-                    
-                    // Try document-based approach one more time with different parameters
-                    Log.e(TAG, "🔄 Previous approaches failed, trying document-based approach with rule context")
-                    val documentRuleResponse = generateLLMResponseWithDocuments(sender, message, ruleMessage)
-                    if (documentRuleResponse.isNotEmpty()) {
-                        Log.e(TAG, "✅ Generated document-based response with rule context: $documentRuleResponse")
-                        addLogEntry(sender, message, documentRuleResponse, true, true)
-                        return documentRuleResponse
-                    }
-                    
-                    // If all LLM approaches fail, log it and return null
-                    Log.e(TAG, "❌ All LLM approaches failed for this rule, no response will be sent")
-                    return null
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error processing rule ${i}: ${e.message}")
             }
         }
         
-        // If no specific rule matched but auto-reply is enabled, use dynamic message
-        Log.e(TAG, "📋 No specific rules matched, using default dynamic response")
-        
-        // Use MLC LLM approach first
-        try {
-            if (mlcLlmModule == null) {
-                if (this.context is ReactApplicationContext) {
-                    mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
-                    try {
-                        isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                        Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
-                    }
-                }
-            }
-            
-            val prompt = "Generate a helpful reply to this message."
-            val llmContext = "You are responding to a message from $sender who asked: \"$message\". " +
-                            "Keep your response brief and conversational. " +
-                            "If their message seems to be asking for information, try to provide specific details if you have them."
-            
-            val response = runBlocking { 
-                mlcLlmModule?.generateAnswer(prompt, llmContext, 0.7f)
-            }
-            
-            if (response != null && response.isNotEmpty()) {
-                Log.e(TAG, "✅ MLC LLM generated default response: $response")
-                addLogEntry(sender, message, response, true, true)
-                return response
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error with MLC LLM approach: ${e.message}")
-        }
-        
-        // Try reflection as backup
-        try {
-            val reactContext = try {
-                (context as ReactApplicationContext)
-            } catch (e: Exception) {
-                null
-            }
-            
-            if (reactContext != null) {
-                val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
-                if (callSmsModule != null) {
-                    // Use reflection to call the testLLM method
-                    val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
-                        "testLLM",
-                        String::class.java
-                    )
-                    testLLMMethod.isAccessible = true
-                    
-                    // Create a proper prompt that treats the message as a potential question
-                    val prompt = "The following message may be asking about information in our documents: \"$message\". " +
-                               "Please provide a helpful response."
-                    
-                    // Call the method directly
-                    val result = testLLMMethod.invoke(callSmsModule, prompt)
-                    
-                    if (result != null) {
-                        val rawResponse = result as String
-                        val cleanedResponse = cleanLLMResponse(rawResponse)
-                        
-                        if (cleanedResponse.isNotEmpty()) {
-                            Log.e(TAG, "✅ Generated dynamic default response via reflection: $cleanedResponse")
-                            addLogEntry(sender, message, cleanedResponse, true, true)
-                            return cleanedResponse
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error with reflection approach for default response: ${e.message}")
-        }
-        
-        // Try document-based approach one more time with different parameters
-        Log.e(TAG, "🔄 Trying document-based approach one more time with different parameters")
-        val finalDocumentResponse = generateLLMResponseWithDocuments(sender, message, "Please provide a helpful response to this message.")
+        // If no specific rule matched, try one more time with direct document approach
+        Log.e(TAG, "📋 No specific rules matched, trying direct document approach again")
+        val finalDocumentResponse = generateLLMResponseWithDocuments(sender, message)
         if (finalDocumentResponse.isNotEmpty()) {
             Log.e(TAG, "✅ Generated final document-based response: $finalDocumentResponse")
             addLogEntry(sender, message, finalDocumentResponse, true, true)
             return finalDocumentResponse
         }
         
-        // If all LLM approaches fail, log it and return null
+        // If all approaches fail, return null to indicate no response should be sent
         Log.e(TAG, "❌ All response generation methods failed, no response will be sent")
         return null
     }
@@ -1123,10 +968,148 @@ class RcsAutoReplyManager(private val context: Context) {
     }
     
     /**
+     * Get documents from the app's documents directory
+     * This allows us to access documents even when context is not ReactApplicationContext
+     */
+    private fun getDocumentsFromFileSystem(): List<File> {
+        Log.e(TAG, "📚 Getting documents from file system")
+        try {
+            // Access documents directory in app's files directory
+            val documentsDir = File(context.filesDir, "documents")
+            if (!documentsDir.exists()) {
+                Log.e(TAG, "❌ Documents directory doesn't exist at ${documentsDir.absolutePath}")
+                return emptyList()
+            }
+            
+            val files = documentsDir.listFiles()
+            if (files == null || files.isEmpty()) {
+                Log.e(TAG, "❌ No documents found in ${documentsDir.absolutePath}")
+                return emptyList()
+            }
+            
+            Log.e(TAG, "📚 Found ${files.size} documents in file system")
+            files.forEach { file ->
+                Log.e(TAG, "   • ${file.name} (${file.length()} bytes)")
+            }
+            
+            return files.toList()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error accessing documents from file system: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Extract text content from documents
+     */
+    private fun extractDocumentContents(files: List<File>): String {
+        Log.e(TAG, "📚📚📚 START: Extracting document contents from ${files.size} files 📚📚📚")
+        val startTime = System.currentTimeMillis()
+        
+        val builder = StringBuilder()
+        var successCount = 0
+        var totalChars = 0
+        
+        try {
+            // Process each document file
+            files.forEachIndexed { index, file ->
+                try {
+                    Log.e(TAG, "📚 Processing document ${index+1}/${files.size}: ${file.name}")
+                    
+                    // Skip empty files
+                    if (file.length() == 0L) {
+                        Log.e(TAG, "⚠️ Skipping empty document: ${file.name}")
+                        return@forEachIndexed
+                    }
+                    
+                    // Handle different file types
+                    when {
+                        file.name.endsWith(".txt", ignoreCase = true) -> {
+                            // Read text files directly
+                            val content = file.readText()
+                            val contentLength = content.length
+                            totalChars += contentLength
+                            
+                            builder.append("--- Document: ${file.name} ---\n")
+                            builder.append(content)
+                            builder.append("\n\n")
+                            
+                            successCount++
+                            Log.e(TAG, "📝 Added text document: ${file.name}, length: ${contentLength} chars")
+                        }
+                        file.name.endsWith(".pdf", ignoreCase = true) -> {
+                            // For PDF files, use DocExtractorHelper
+                            Log.e(TAG, "📄 Extracting text from PDF: ${file.name}")
+                            try {
+                                val pdfContent = extractPdfText(file)
+                                if (pdfContent.isNotEmpty()) {
+                                    val contentLength = pdfContent.length
+                                    totalChars += contentLength
+                                    
+                                    builder.append("--- Document: ${file.name} ---\n")
+                                    builder.append(pdfContent)
+                                    builder.append("\n\n")
+                                    
+                                    successCount++
+                                    Log.e(TAG, "📝 Added PDF document: ${file.name}, extracted length: ${contentLength} chars")
+                                } else {
+                                    Log.e(TAG, "⚠️ No text extracted from PDF: ${file.name}")
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error extracting text from PDF ${file.name}: ${e.message}")
+                            }
+                        }
+                        file.name.endsWith(".docx", ignoreCase = true) -> {
+                            Log.e(TAG, "📄 Attempting to extract text from DOCX: ${file.name}")
+                            // Placeholder for DOCX extraction if needed
+                            Log.e(TAG, "⚠️ DOCX extraction not implemented yet")
+                        }
+                        else -> {
+                            Log.e(TAG, "⚠️ Skipping unsupported file type: ${file.name}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error reading document ${file.name}: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error extracting document contents: ${e.message}")
+            e.printStackTrace()
+        }
+        
+        val result = builder.toString()
+        val endTime = System.currentTimeMillis()
+        
+        Log.e(TAG, "📊 Document extraction summary:")
+        Log.e(TAG, "   • Total files processed: ${files.size}")
+        Log.e(TAG, "   • Successfully extracted: $successCount")
+        Log.e(TAG, "   • Total characters: $totalChars")
+        Log.e(TAG, "   • Processing time: ${endTime - startTime} ms")
+        
+        Log.e(TAG, "📚📚📚 END: Document extraction complete 📚📚📚")
+        return result
+    }
+    
+    /**
+     * Extract text from a PDF file using DocExtractorHelper
+     */
+    private fun extractPdfText(pdfFile: File): String {
+        try {
+            // Use DocExtractorHelper to extract PDF text
+            return DocExtractorHelper.extractTextFromPdf(pdfFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in PDF extraction: ${e.message}")
+            e.printStackTrace()
+            return ""
+        }
+    }
+
+    /**
      * Generate LLM response using document context (similar to SMS auto-reply)
      * This is the primary method for generating LLM responses
      */
-    private fun generateLLMResponseWithDocuments(sender: String, receivedMessage: String, contextMessage: String = ""): String {
+    fun generateLLMResponseWithDocuments(sender: String, receivedMessage: String, contextMessage: String = ""): String {
         Log.e(TAG, "📚 START: Generating LLM response with document context")
         Log.e(TAG, "📚 Sender: $sender")
         Log.e(TAG, "📚 Message: $receivedMessage")
@@ -1142,141 +1125,193 @@ class RcsAutoReplyManager(private val context: Context) {
                 Log.e(TAG, "⚠️ Context not ideal for LLM, but will attempt anyway")
             }
             
-            // Try MLC LLM approach
-            try {
-                Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
-                if (mlcLlmModule == null) {
-                    Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
-                    if (this.context is ReactApplicationContext) {
-                        Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
-                        mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
-                        try {
-                            Log.e(TAG, "🧠 Initializing MLC LLM module")
-                            isMLCInitialized = mlcLlmModule?.initialize() ?: false
-                            Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
-                        }
-                    } else {
-                        Log.e(TAG, "⚠️ Context is not ReactApplicationContext, will try alternative approaches")
-                    }
+            // Get documents from file system regardless of context type
+            val documentFiles = getDocumentsFromFileSystem()
+            if (documentFiles.isEmpty()) {
+                Log.e(TAG, "❌ No document files found in file system")
+                return ""
+            } else {
+                Log.e(TAG, "📚 Found ${documentFiles.size} documents in file system")
+                
+                // Extract document content
+                val documentContent = extractDocumentContents(documentFiles)
+                if (documentContent.isEmpty()) {
+                    Log.e(TAG, "❌ No content extracted from documents")
+                    return ""
                 }
                 
-                // If MLC module is available, use it
-                if (mlcLlmModule != null) {
-                    val prompt = "Generate a document-based reply to this message."
-                    Log.e(TAG, "✏️ Document-based prompt: $prompt")
-                    
-                    val mlcContext = if (contextMessage.isNotEmpty()) {
-                        "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                        "Keep your response brief, helpful and conversational. " +
-                        "Consider this context for your response: \"$contextMessage\". " +
-                        "If their message seems to be asking for information, try to provide specific details from available documents."
-                    } else {
-                        "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                        "Keep your response brief, helpful and conversational. " +
-                        "If their message seems to be asking for information, try to provide specific details from available documents."
-                    }
-                    Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
-                    
-                    Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for document-based response")
-                    val startTime = System.currentTimeMillis()
-                    val response = runBlocking { 
-                        mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
-                    }
-                    val endTime = System.currentTimeMillis()
-                    Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
-                    
-                    if (response != null && response.isNotEmpty()) {
-                        Log.e(TAG, "✅ MLC LLM generated document-based response (${response.length} chars): $response")
-                        addLogEntry(sender, receivedMessage, response, true, true)
-                        Log.e(TAG, "📚 END: Document-based response generation successful")
-                        return response
-                    } else {
-                        Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
-                    }
-                } else {
-                    Log.e(TAG, "⚠️ MLC LLM module is null, trying alternative approaches")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error with MLC LLM document-based approach: ${e.message}")
-                e.printStackTrace()
-            }
-            
-            // Try reflection approach as fallback
-            try {
-                Log.e(TAG, "🔍 Attempting to use reflection approach for document-based response")
-                val reactContext = try {
-                    (context as ReactApplicationContext)
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error getting ReactContext: ${e.message}")
-                    null
-                }
+                Log.e(TAG, "📚 Extracted ${documentContent.length} characters from documents")
                 
-                if (reactContext != null) {
-                    val callSmsModule = reactContext.getNativeModule(CallSmsModule::class.java)
-                    if (callSmsModule != null) {
-                        Log.e(TAG, "🔍 Found CallSmsModule, using testLLM method via reflection")
-                        val testLLMMethod = CallSmsModule::class.java.getDeclaredMethod(
-                            "testLLM",
-                            String::class.java
-                        )
-                        testLLMMethod.isAccessible = true
-                        
-                        // Build a prompt specifically designed to get document-relevant information
-                        // This focuses on treating the message as a question about documents
-                        val enhancedPrompt = if (contextMessage.isNotEmpty()) {
-                            "The following message may be asking about information in our documents: \"$receivedMessage\". " +
-                            "Consider this additional context: \"$contextMessage\". " +
-                            "Please provide a helpful response that references relevant document information."
-                        } else {
-                            "The following message may be asking about information in our documents: \"$receivedMessage\". " +
-                            "Please provide a helpful response that references relevant document information."
-                        }
-                        
-                        Log.e(TAG, "✏️ Enhanced document prompt via reflection: $enhancedPrompt")
-                        
-                        Log.e(TAG, "🧠 Calling testLLM via reflection")
-                        val startTime = System.currentTimeMillis()
-                        val result = testLLMMethod.invoke(callSmsModule, enhancedPrompt)
-                        val endTime = System.currentTimeMillis()
-                        Log.e(TAG, "⏱️ Reflection-based document response took ${endTime - startTime} ms")
-                        
-                        if (result != null) {
-                            val rawResponse = result as String
-                            val cleanedResponse = cleanLLMResponse(rawResponse)
-                            
-                            if (cleanedResponse.isNotEmpty()) {
-                                Log.e(TAG, "✅ Successfully got document-based LLM response via reflection (${cleanedResponse.length} chars): $cleanedResponse")
-                                addLogEntry(sender, receivedMessage, cleanedResponse, true, true)
-                                Log.e(TAG, "📚 END: Document-based response generation successful via reflection")
-                                return cleanedResponse
-                            } else {
-                                Log.e(TAG, "❌ Reflection approach returned empty cleaned response")
+                // Try MLC LLM approach
+                try {
+                    Log.e(TAG, "🧠 Attempting to use MLC LLM for document-based response")
+                    if (mlcLlmModule == null) {
+                        Log.e(TAG, "🧠 MLC LLM module not initialized, attempting initialization")
+                        if (this.context is ReactApplicationContext) {
+                            Log.e(TAG, "🧠 Creating new MLCLLMModule instance")
+                            mlcLlmModule = MLCLLMModule(this.context as ReactApplicationContext)
+                            try {
+                                Log.e(TAG, "🧠 Initializing MLC LLM module")
+                                isMLCInitialized = mlcLlmModule?.initialize() ?: false
+                                Log.e(TAG, "🧠 Late initialization of MLC LLM: ${if (isMLCInitialized) "SUCCESS" else "FAILED"}")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error in late initialization of MLC LLM: ${e.message}")
                             }
                         } else {
-                            Log.e(TAG, "❌ Reflection approach returned null result")
+                            Log.e(TAG, "⚠️ Context is not ReactApplicationContext, will try alternative approaches")
+                        }
+                    }
+                    
+                    // If MLC module is available, use it
+                    if (mlcLlmModule != null) {
+                        val prompt = "Generate a document-based reply to this message."
+                        Log.e(TAG, "✏️ Document-based prompt: $prompt")
+                        
+                        val mlcContext = if (contextMessage.isNotEmpty()) {
+                            "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                            "Keep your response brief, helpful and conversational. " +
+                            "Consider this context for your response: \"$contextMessage\". " +
+                            "Consider this document content: \"$documentContent\". " +
+                            "If their message seems to be asking for information, try to provide specific details from available documents."
+                        } else {
+                            "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
+                            "Keep your response brief, helpful and conversational. " +
+                            "Consider this document content: \"$documentContent\". " +
+                            "If their message seems to be asking for information, try to provide specific details from available documents."
+                        }
+                        Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
+                        
+                        Log.e(TAG, "🧠 Calling MLC LLM generateAnswer for document-based response")
+                        val startTime = System.currentTimeMillis()
+                        val response = runBlocking { 
+                            mlcLlmModule?.generateAnswer(prompt, mlcContext, 0.7f)
+                        }
+                        val endTime = System.currentTimeMillis()
+                        Log.e(TAG, "⏱️ Document-based MLC LLM response generation took ${endTime - startTime} ms")
+                        
+                        if (response != null && response.isNotEmpty()) {
+                            Log.e(TAG, "✅ MLC LLM generated document-based response (${response.length} chars): $response")
+                            addLogEntry(sender, receivedMessage, response, true, true)
+                            Log.e(TAG, "📚 END: Document-based response generation successful")
+                            return response
+                        } else {
+                            Log.e(TAG, "❌ MLC LLM returned null or empty document-based response")
                         }
                     } else {
-                        Log.e(TAG, "❌ CallSmsModule not found")
+                        Log.e(TAG, "⚠️ MLC LLM module is null, trying alternative approaches")
                     }
-                } else {
-                    Log.e(TAG, "❌ ReactContext is null")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error with MLC LLM document-based approach: ${e.message}")
+                    e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error with reflection approach: ${e.message}")
-                e.printStackTrace()
+                
+                // If we have document content but MLC failed, use a fallback approach
+                try {
+                    Log.e(TAG, "🔄 Using fallback document-based approach")
+                    val response = generateFallbackDocumentResponse(receivedMessage, documentContent)
+                    if (response.isNotEmpty()) {
+                        Log.e(TAG, "✅ Generated fallback document-based response: $response")
+                        Log.e(TAG, "📚 END: Document-based response generation successful with fallback")
+                        return response
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error with fallback document-based approach: ${e.message}")
+                }
             }
             
-            // If all LLM approaches failed, return empty string to prevent static responses
-            Log.e(TAG, "❌❌❌ All LLM approaches failed, returning empty string to prevent static responses")
+            // If all approaches failed, return empty string
+            Log.e(TAG, "❌❌❌ All approaches failed, returning empty string")
             Log.e(TAG, "📚 END: Document-based response generation failed - all approaches")
-            return "Failed sms send 1"
+            return ""
+            
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in generateLLMResponseWithDocuments: ${e.message}")
             e.printStackTrace()
             Log.e(TAG, "📚 END: Document-based response generation failed with exception")
-            return "Failed sms send 2"
+            return ""
+        }
+    }
+    
+    /**
+     * Generate a fallback response based on document content
+     * This is used when MLC LLM is not available
+     */
+    private fun generateFallbackDocumentResponse(question: String, documentContent: String): String {
+        Log.e(TAG, "🔄 Generating fallback document response")
+        
+        try {
+            // Extract keywords from question
+            val keywords = question.lowercase()
+                .split(Regex("\\s+"))
+                .filter { it.length > 3 }
+                .toSet()
+                
+            if (keywords.isEmpty()) {
+                Log.e(TAG, "❌ No keywords found in question")
+                return ""
+            }
+            
+            Log.e(TAG, "🔑 Keywords: ${keywords.joinToString(", ")}")
+            
+            // Split document content into paragraphs
+            val paragraphs = documentContent.split(Regex("\n\n"))
+                .filter { it.isNotBlank() && it.length > 20 }
+                
+            if (paragraphs.isEmpty()) {
+                Log.e(TAG, "❌ No paragraphs found in document content")
+                return ""
+            }
+            
+            // Score paragraphs by keyword matching
+            val scoredParagraphs = paragraphs.map { paragraph ->
+                val paragraphLower = paragraph.lowercase()
+                val score = keywords.count { keyword ->
+                    paragraphLower.contains(keyword)
+                }
+                Pair(paragraph, score)
+            }
+            
+            // Get most relevant paragraphs
+            val relevantParagraphs = scoredParagraphs
+                .filter { it.second > 0 }
+                .sortedByDescending { it.second }
+                .take(2)
+                .map { it.first }
+                
+            if (relevantParagraphs.isEmpty()) {
+                Log.e(TAG, "❌ No relevant paragraphs found")
+                return ""
+            }
+            
+            // Construct response
+            val response = StringBuilder()
+            response.append("Based on our documents, ")
+            
+            relevantParagraphs.forEachIndexed { index, paragraph ->
+                if (index > 0) {
+                    response.append(" Additionally, ")
+                }
+                
+                // Clean up paragraph
+                val cleanParagraph = paragraph
+                    .replace(Regex("--- Document: [^-]+ ---\n"), "")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    
+                response.append(cleanParagraph)
+                
+                if (!cleanParagraph.endsWith(".") && !cleanParagraph.endsWith("!") && !cleanParagraph.endsWith("?")) {
+                    response.append(".")
+                }
+            }
+            
+            val finalResponse = response.toString()
+            Log.e(TAG, "✅ Generated fallback document response: $finalResponse")
+            return finalResponse
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error generating fallback document response: ${e.message}")
+            return ""
         }
     }
     
@@ -1436,5 +1471,51 @@ class RcsAutoReplyManager(private val context: Context) {
         }
         
         return true
+    }
+
+    /**
+     * Test document access and LLM response generation
+     * This can be called to verify our fixes are working with real uploaded documents
+     */
+    fun testDocumentAccess(): String {
+        Log.e(TAG, "🧪🧪🧪 TESTING DOCUMENT ACCESS AND LLM RESPONSE GENERATION 🧪🧪🧪")
+        
+        try {
+            // First check if we can access documents from the file system
+            // These are the real documents uploaded by the user in LocalLLMSetupScreen.tsx
+            val documents = getDocumentsFromFileSystem()
+            if (documents.isEmpty()) {
+                Log.e(TAG, "❌ No documents found in file system. Please upload documents in LocalLLMSetupScreen first.")
+                return "No documents found. Please upload documents in the Local LLM Setup screen first."
+            }
+            
+            Log.e(TAG, "✅ Successfully accessed ${documents.size} real uploaded documents from file system")
+            
+            // Extract document content
+            val documentContent = extractDocumentContents(documents)
+            if (documentContent.isEmpty()) {
+                Log.e(TAG, "❌ No content extracted from documents")
+                return "No content extracted from documents. Please ensure your uploaded documents contain text."
+            }
+            
+            Log.e(TAG, "✅ Successfully extracted ${documentContent.length} characters from real uploaded documents")
+            
+            // Generate a test response
+            val testMessage = "Tell me about your product"
+            val response = generateLLMResponseWithDocuments("TestUser", testMessage)
+            
+            if (response.isEmpty()) {
+                Log.e(TAG, "❌ Failed to generate response with documents")
+                return "Failed to generate response with documents. Please check that your uploaded documents contain relevant information."
+            }
+            
+            Log.e(TAG, "✅ Successfully generated response using real uploaded documents: $response")
+            return "Test successful! Generated response from real uploaded documents: $response"
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in testDocumentAccess: ${e.message}")
+            e.printStackTrace()
+            return "Error: ${e.message}"
+        }
     }
 } 

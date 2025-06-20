@@ -141,36 +141,32 @@ class RcsMessageHandler {
                 Log.e(TAG, "📱 From: $phoneNumber")
                 Log.e(TAG, "📝 Message: $messageBody")
                 
-                // CRITICAL FIX: Process the message and send reply directly
+                // Use RcsAutoReplyManager to process the message and generate a response
                 try {
-                    // Process the message using the standard SMS processor
-                    SmsProcessor.processIncomingSms(context, phoneNumber, messageBody)
+                    Log.e(TAG, "🧠 Using RcsAutoReplyManager to process message")
+                    val rcsManager = RcsAutoReplyManager(context)
                     
-                    // Generate a reply message
-                    val replyMessage = "Thank you for your message. I'll get back to you soon."
+                    // Check if auto-reply is enabled
+                    if (!rcsManager.isEnabled()) {
+                        Log.e(TAG, "⚠️ RCS auto-reply is disabled, enabling it for this message")
+                        rcsManager.setEnabled(true)
+                    }
                     
-                    // If we have a reply message, send it directly using SmsSender
-                    if (replyMessage.isNotBlank()) {
-                        Log.e(TAG, "📤 Sending direct reply to RCS message")
+                    // Process the message using RcsAutoReplyManager
+                    val replyMessage = rcsManager.processMessage(phoneNumber, messageBody)
+                    
+                    // If we have a reply message, send it
+                    if (replyMessage != null && replyMessage.isNotBlank()) {
+                        Log.e(TAG, "📤 Sending RCS reply: $replyMessage")
                         SmsSender.sendSms(context, phoneNumber, replyMessage)
-                        Log.e(TAG, "✅ Direct reply to RCS message sent successfully")
+                        Log.e(TAG, "✅ RCS reply sent successfully")
                     } else {
-                        Log.e(TAG, "ℹ️ No reply needed for this RCS message")
+                        Log.e(TAG, "⚠️ No document-based reply generated, skipping response")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error processing or replying to RCS message: ${e.message}")
-                    
-                    // Try fallback approach - just send a generic reply
-                    try {
-                        Log.e(TAG, "🔄 Trying fallback reply for RCS message")
-                        val fallbackMessage = "I received your message and will get back to you soon."
-                        SmsSender.sendSms(context, phoneNumber, fallbackMessage)
-                        Log.e(TAG, "✅ Fallback reply sent successfully")
-                    } catch (e2: Exception) {
-                        Log.e(TAG, "❌ Fallback reply also failed: ${e2.message}")
-                    }
+                    Log.e(TAG, "❌ Error using RcsAutoReplyManager: ${e.message}")
+                    Log.e(TAG, "⚠️ No response will be sent")
                 }
-                
             } catch (e: Exception) {
                 Log.e(TAG, "❌❌❌ ERROR PROCESSING RCS MESSAGE: ${e.message}")
                 Log.e(TAG, "Stack trace: ${e.stackTraceToString()}")

@@ -7,6 +7,8 @@ import {
   Alert,
   FlatList,
   Button,
+  TouchableOpacity,
+  ActivityIndicator,
 } from "react-native";
 import {
   NativeModules,
@@ -17,7 +19,7 @@ import AutoReplyToggle from "../components/AutoReplyToggle";
 import LLMAutoReplyToggle from "../components/LLMAutoReplyToggle";
 import PermissionsManager from "../utils/PermissionsManager";
 
-const { AutoReplyModule } = NativeModules;
+const { AutoReplyModule, CallSmsModule } = NativeModules;
 
 const TestAutoReplyScreen: React.FC = () => {
   const [hasRequiredPermissions, setHasRequiredPermissions] =
@@ -26,6 +28,8 @@ const TestAutoReplyScreen: React.FC = () => {
   const [moduleStatus, setModuleStatus] = useState<string>("Checking...");
   const [isRequestingPermissions, setIsRequestingPermissions] =
     useState<boolean>(false);
+  const [testResult, setTestResult] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Define the required permissions
   const requiredPermissions = [
@@ -161,6 +165,25 @@ const TestAutoReplyScreen: React.FC = () => {
     ]);
   };
 
+  const handleTestDocumentLLM = async () => {
+    try {
+      setIsLoading(true);
+      setTestResult("");
+
+      console.log("Testing document access and LLM response generation");
+      const result = await CallSmsModule.testDocumentLLM();
+
+      console.log("Test result:", result);
+      setTestResult(result);
+    } catch (error: any) {
+      console.error("Error testing document access:", error);
+      Alert.alert("Test Failed", `Error: ${error?.message || "Unknown error"}`);
+      setTestResult(`Error: ${error?.message || "Unknown error"}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const renderMessageItem = ({ item }: { item: any }) => {
     const dateTime = new Date(item.timestamp);
     const formattedTime = dateTime.toLocaleTimeString();
@@ -265,6 +288,32 @@ const TestAutoReplyScreen: React.FC = () => {
         </Text>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Document Access and LLM Test</Text>
+        <Text style={styles.description}>
+          Test if the app can access documents and generate LLM responses.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.testButton}
+          onPress={handleTestDocumentLLM}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Test Document LLM</Text>
+          )}
+        </TouchableOpacity>
+
+        {testResult ? (
+          <View style={styles.resultContainer}>
+            <Text style={styles.resultTitle}>Test Result:</Text>
+            <Text style={styles.resultText}>{testResult}</Text>
+          </View>
+        ) : null}
+      </View>
+
       {recentMessages.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Messages</Text>
@@ -358,6 +407,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#777",
     marginTop: 8,
+  },
+  description: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 16,
+  },
+  testButton: {
+    backgroundColor: "#4caf50",
+    padding: 12,
+    borderRadius: 4,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  buttonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  resultContainer: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 4,
+    borderLeftWidth: 4,
+    borderLeftColor: "#2196f3",
+  },
+  resultTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  resultText: {
+    fontSize: 14,
+    color: "#333",
   },
 });
 
