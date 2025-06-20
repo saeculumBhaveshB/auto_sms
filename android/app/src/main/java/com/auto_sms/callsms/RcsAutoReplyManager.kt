@@ -404,12 +404,16 @@ class RcsAutoReplyManager(private val context: Context) {
         // Record that we'll be replying to this sender
         recordReply(sender, message)
         
+        // Analyze the question to determine what information is being requested
+        val questionType = analyzeQuestion(message)
+        Log.e(TAG, "🔍 Question type: $questionType")
+        
         // First, attempt to generate a document-based response (highest priority)
         // This treats the message as a potential question about documents
-        Log.e(TAG, "📚 Checking for document-based response first")
+        Log.e(TAG, "📚 Generating intelligent document-based response")
         val documentResponse = generateLLMResponseWithDocuments(sender, message)
         if (documentResponse.isNotEmpty()) {
-            Log.e(TAG, "✅ Generated document-based response: $documentResponse")
+            Log.e(TAG, "✅ Generated intelligent document-based response: $documentResponse")
             addLogEntry(sender, message, documentResponse, true, true)
             return documentResponse
         }
@@ -445,11 +449,11 @@ class RcsAutoReplyManager(private val context: Context) {
                 
                 if (matches) {
                     // Use document-based LLM approach with rule context
-                    Log.e(TAG, "🧠 Generating LLM response with rule context")
+                    Log.e(TAG, "🧠 Generating intelligent LLM response with rule context")
                     val ruleDocumentResponse = generateLLMResponseWithDocuments(sender, message, ruleMessage)
                     
                     if (ruleDocumentResponse.isNotEmpty()) {
-                        Log.e(TAG, "✅ Generated document-based response with rule context: $ruleDocumentResponse")
+                        Log.e(TAG, "✅ Generated intelligent document-based response with rule context: $ruleDocumentResponse")
                         addLogEntry(sender, message, ruleDocumentResponse, true, true)
                         return ruleDocumentResponse
                     } else {
@@ -465,7 +469,7 @@ class RcsAutoReplyManager(private val context: Context) {
         Log.e(TAG, "📋 No specific rules matched, trying direct document approach again")
         val finalDocumentResponse = generateLLMResponseWithDocuments(sender, message)
         if (finalDocumentResponse.isNotEmpty()) {
-            Log.e(TAG, "✅ Generated final document-based response: $finalDocumentResponse")
+            Log.e(TAG, "✅ Generated final intelligent document-based response: $finalDocumentResponse")
             addLogEntry(sender, message, finalDocumentResponse, true, true)
             return finalDocumentResponse
         }
@@ -1172,20 +1176,37 @@ class RcsAutoReplyManager(private val context: Context) {
                     
                     // If MLC module is available, use it
                     if (mlcLlmModule != null) {
-                        val prompt = "Generate a document-based reply to this message."
+                        // Analyze the question to determine what information is being requested
+                        val questionAnalysis = analyzeQuestion(receivedMessage)
+                        Log.e(TAG, "🔍 Question analysis: $questionAnalysis")
+                        
+                        // Create a more targeted prompt based on question analysis
+                        val prompt = "Generate a focused, relevant answer to this specific question based only on the document content."
                         Log.e(TAG, "✏️ Document-based prompt: $prompt")
                         
                         val mlcContext = if (contextMessage.isNotEmpty()) {
                             "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                            "Keep your response brief, helpful and conversational. " +
+                            "Your task is to provide a concise, focused answer that addresses ONLY what was asked. " +
                             "Consider this context for your response: \"$contextMessage\". " +
-                            "Consider this document content: \"$documentContent\". " +
-                            "If their message seems to be asking for information, try to provide specific details from available documents."
+                            "Document content: \"$documentContent\". " +
+                            "IMPORTANT INSTRUCTIONS: " +
+                            "1. Only answer what was specifically asked - if they ask for a name, only provide the name. " +
+                            "2. If the question is about accounting, only provide accounting information. " +
+                            "3. Do not copy-paste entire paragraphs - extract and synthesize the relevant information. " +
+                            "4. If the answer isn't in the documents, say you don't have that information. " +
+                            "5. Keep your response brief and directly relevant to the question. " +
+                            "6. Format your answer in a conversational, helpful tone."
                         } else {
                             "You are responding to a message from $sender who asked: \"$receivedMessage\". " +
-                            "Keep your response brief, helpful and conversational. " +
-                            "Consider this document content: \"$documentContent\". " +
-                            "If their message seems to be asking for information, try to provide specific details from available documents."
+                            "Your task is to provide a concise, focused answer that addresses ONLY what was asked. " +
+                            "Document content: \"$documentContent\". " +
+                            "IMPORTANT INSTRUCTIONS: " +
+                            "1. Only answer what was specifically asked - if they ask for a name, only provide the name. " +
+                            "2. If the question is about accounting, only provide accounting information. " +
+                            "3. Do not copy-paste entire paragraphs - extract and synthesize the relevant information. " +
+                            "4. If the answer isn't in the documents, say you don't have that information. " +
+                            "5. Keep your response brief and directly relevant to the question. " +
+                            "6. Format your answer in a conversational, helpful tone."
                         }
                         Log.e(TAG, "✏️ Document-based context length: ${mlcContext.length} characters")
                         
@@ -1220,17 +1241,17 @@ class RcsAutoReplyManager(private val context: Context) {
                     e.printStackTrace()
                 }
                 
-                // If we have document content but MLC failed, use a fallback approach
+                // If we have document content but MLC failed, use an improved fallback approach
                 try {
-                    Log.e(TAG, "🔄 Using fallback document-based approach")
-                    val response = generateFallbackDocumentResponse(receivedMessage, documentContent)
+                    Log.e(TAG, "🔄 Using improved fallback document-based approach")
+                    val response = generateImprovedFallbackDocumentResponse(receivedMessage, documentContent)
                     if (response.isNotEmpty()) {
-                        Log.e(TAG, "✅ Generated fallback document-based response: $response")
+                        Log.e(TAG, "✅ Generated improved fallback document-based response: $response")
                         Log.e(TAG, "📚 END: Document-based response generation successful with fallback")
                         return response
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error with fallback document-based approach: ${e.message}")
+                    Log.e(TAG, "❌ Error with improved fallback document-based approach: ${e.message}")
                 }
             }
             
@@ -1248,17 +1269,75 @@ class RcsAutoReplyManager(private val context: Context) {
     }
     
     /**
-     * Generate a fallback response based on document content
-     * This is used when MLC LLM is not available
+     * Analyze the question to determine what information is being requested
+     * This helps provide more targeted responses
      */
-    private fun generateFallbackDocumentResponse(question: String, documentContent: String): String {
-        Log.e(TAG, "🔄 Generating fallback document response")
+    private fun analyzeQuestion(question: String): String {
+        val lowerQuestion = question.lowercase()
+        
+        // Identify question type
+        return when {
+            // Questions about identity
+            lowerQuestion.contains("who") || 
+            lowerQuestion.contains("name") || 
+            lowerQuestion.contains("company") || 
+            lowerQuestion.contains("business") -> "IDENTITY"
+            
+            // Questions about contact information
+            lowerQuestion.contains("contact") || 
+            lowerQuestion.contains("email") || 
+            lowerQuestion.contains("phone") || 
+            lowerQuestion.contains("address") || 
+            lowerQuestion.contains("website") -> "CONTACT"
+            
+            // Questions about pricing
+            lowerQuestion.contains("price") || 
+            lowerQuestion.contains("cost") || 
+            lowerQuestion.contains("fee") || 
+            lowerQuestion.contains("charge") || 
+            lowerQuestion.contains("rate") -> "PRICING"
+            
+            // Questions about services
+            lowerQuestion.contains("service") || 
+            lowerQuestion.contains("offer") || 
+            lowerQuestion.contains("provide") || 
+            lowerQuestion.contains("do you") -> "SERVICES"
+            
+            // Questions about accounting
+            lowerQuestion.contains("account") || 
+            lowerQuestion.contains("tax") || 
+            lowerQuestion.contains("finance") || 
+            lowerQuestion.contains("payment") || 
+            lowerQuestion.contains("invoice") -> "ACCOUNTING"
+            
+            // Questions about timing
+            lowerQuestion.contains("when") || 
+            lowerQuestion.contains("time") || 
+            lowerQuestion.contains("schedule") || 
+            lowerQuestion.contains("hours") || 
+            lowerQuestion.contains("available") -> "TIMING"
+            
+            // General questions
+            else -> "GENERAL"
+        }
+    }
+    
+    /**
+     * Generate an improved fallback response based on document content
+     * This provides more targeted responses than the original fallback
+     */
+    private fun generateImprovedFallbackDocumentResponse(question: String, documentContent: String): String {
+        Log.e(TAG, "🔄 Generating improved fallback document response")
         
         try {
+            // Analyze the question
+            val questionType = analyzeQuestion(question)
+            Log.e(TAG, "🔍 Question type: $questionType")
+            
             // Extract keywords from question
             val keywords = question.lowercase()
                 .split(Regex("\\s+"))
-                .filter { it.length > 3 }
+                .filter { it.length > 2 }
                 .toSet()
                 
             if (keywords.isEmpty()) {
@@ -1277,12 +1356,66 @@ class RcsAutoReplyManager(private val context: Context) {
                 return "AI: Sorry I am not capable to give this answer. Please ask another question."
             }
             
-            // Score paragraphs by keyword matching
+            // Score paragraphs by keyword matching and question type
             val scoredParagraphs = paragraphs.map { paragraph ->
                 val paragraphLower = paragraph.lowercase()
-                val score = keywords.count { keyword ->
+                
+                // Base score from keyword matching
+                var score = keywords.count { keyword ->
                     paragraphLower.contains(keyword)
                 }
+                
+                // Boost score based on question type
+                when (questionType) {
+                    "IDENTITY" -> {
+                        if (paragraphLower.contains("name") || 
+                            paragraphLower.contains("company") || 
+                            paragraphLower.contains("business") || 
+                            paragraphLower.contains("firm")) {
+                            score += 3
+                        }
+                    }
+                    "CONTACT" -> {
+                        if (paragraphLower.contains("contact") || 
+                            paragraphLower.contains("email") || 
+                            paragraphLower.contains("phone") || 
+                            paragraphLower.contains("address")) {
+                            score += 3
+                        }
+                    }
+                    "PRICING" -> {
+                        if (paragraphLower.contains("price") || 
+                            paragraphLower.contains("cost") || 
+                            paragraphLower.contains("fee") || 
+                            paragraphLower.contains("rate")) {
+                            score += 3
+                        }
+                    }
+                    "SERVICES" -> {
+                        if (paragraphLower.contains("service") || 
+                            paragraphLower.contains("offer") || 
+                            paragraphLower.contains("provide")) {
+                            score += 3
+                        }
+                    }
+                    "ACCOUNTING" -> {
+                        if (paragraphLower.contains("account") || 
+                            paragraphLower.contains("tax") || 
+                            paragraphLower.contains("finance") || 
+                            paragraphLower.contains("payment")) {
+                            score += 3
+                        }
+                    }
+                    "TIMING" -> {
+                        if (paragraphLower.contains("time") || 
+                            paragraphLower.contains("schedule") || 
+                            paragraphLower.contains("hours") || 
+                            paragraphLower.contains("available")) {
+                            score += 3
+                        }
+                    }
+                }
+                
                 Pair(paragraph, score)
             }
             
@@ -1298,34 +1431,129 @@ class RcsAutoReplyManager(private val context: Context) {
                 return "AI: Sorry I am not capable to give this answer. Please ask another question."
             }
             
-            // Construct response
-            val response = StringBuilder()
-            response.append("AI: ")
+            // Extract specific sentences that match keywords
+            val relevantSentences = mutableListOf<String>()
             
-            relevantParagraphs.forEachIndexed { index, paragraph ->
-                if (index > 0) {
-                    response.append(" Additionally, ")
-                }
-                
-                // Clean up paragraph
-                val cleanParagraph = paragraph
-                    .replace(Regex("--- Document: [^-]+ ---\n"), "")
-                    .replace(Regex("\\s+"), " ")
-                    .trim()
+            relevantParagraphs.forEach { paragraph ->
+                val sentences = paragraph.split(Regex("[.!?]\\s+"))
+                    .filter { it.isNotBlank() }
                     
-                response.append(cleanParagraph)
-                
-                if (!cleanParagraph.endsWith(".") && !cleanParagraph.endsWith("!") && !cleanParagraph.endsWith("?")) {
-                    response.append(".")
+                sentences.forEach { sentence ->
+                    val sentenceLower = sentence.lowercase()
+                    val matchesKeywords = keywords.any { keyword ->
+                        sentenceLower.contains(keyword)
+                    }
+                    
+                    // Also check for question type match
+                    val matchesQuestionType = when (questionType) {
+                        "IDENTITY" -> sentenceLower.contains("name") || 
+                                      sentenceLower.contains("company") || 
+                                      sentenceLower.contains("business")
+                        "CONTACT" -> sentenceLower.contains("contact") || 
+                                     sentenceLower.contains("email") || 
+                                     sentenceLower.contains("phone")
+                        "PRICING" -> sentenceLower.contains("price") || 
+                                     sentenceLower.contains("cost") || 
+                                     sentenceLower.contains("fee")
+                        "SERVICES" -> sentenceLower.contains("service") || 
+                                      sentenceLower.contains("offer") || 
+                                      sentenceLower.contains("provide")
+                        "ACCOUNTING" -> sentenceLower.contains("account") || 
+                                        sentenceLower.contains("tax") || 
+                                        sentenceLower.contains("finance")
+                        "TIMING" -> sentenceLower.contains("time") || 
+                                    sentenceLower.contains("schedule") || 
+                                    sentenceLower.contains("hours")
+                        else -> false
+                    }
+                    
+                    if (matchesKeywords || matchesQuestionType) {
+                        relevantSentences.add(sentence)
+                    }
                 }
             }
             
-            val finalResponse = response.toString()
-            Log.e(TAG, "✅ Generated fallback document response: $finalResponse")
-            return finalResponse
+            // If we found specific relevant sentences, use those
+            val response = if (relevantSentences.isNotEmpty()) {
+                // Take up to 3 most relevant sentences
+                val limitedSentences = relevantSentences.take(3)
+                
+                // Construct a natural-sounding response
+                val responseBuilder = StringBuilder("AI: ")
+                
+                // Add an appropriate introduction based on question type
+                when (questionType) {
+                    "IDENTITY" -> responseBuilder.append("")
+                    "CONTACT" -> responseBuilder.append("")
+                    "PRICING" -> responseBuilder.append("")
+                    "SERVICES" -> responseBuilder.append("")
+                    "ACCOUNTING" -> responseBuilder.append("")
+                    "TIMING" -> responseBuilder.append("")
+                    else -> responseBuilder.append("")
+                }
+                
+                // Add the relevant sentences
+                limitedSentences.forEachIndexed { index, sentence ->
+                    // Clean up sentence
+                    val cleanSentence = sentence.trim()
+                    
+                    if (index > 0) {
+                        responseBuilder.append(" ")
+                    }
+                    
+                    responseBuilder.append(cleanSentence)
+                    
+                    // Add appropriate punctuation if missing
+                    if (!cleanSentence.endsWith(".") && !cleanSentence.endsWith("!") && !cleanSentence.endsWith("?")) {
+                        responseBuilder.append(".")
+                    }
+                }
+                
+                responseBuilder.toString()
+            } else {
+                // Fall back to using whole paragraphs if no specific sentences were found
+                val responseBuilder = StringBuilder("AI: ")
+                
+                // Add an appropriate introduction
+                when (questionType) {
+                    "IDENTITY" -> responseBuilder.append("Regarding your question about identity, ")
+                    "CONTACT" -> responseBuilder.append("For contact information, ")
+                    "PRICING" -> responseBuilder.append("About pricing, ")
+                    "SERVICES" -> responseBuilder.append("Regarding our services, ")
+                    "ACCOUNTING" -> responseBuilder.append("For accounting information, ")
+                    "TIMING" -> responseBuilder.append("About timing, ")
+                    else -> responseBuilder.append("Based on our documents, ")
+                }
+                
+                // Add the first relevant paragraph, but summarized
+                val firstParagraph = relevantParagraphs.first()
+                val cleanParagraph = firstParagraph
+                    .replace(Regex("--- Document: [^-]+ ---\n"), "")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                
+                // Try to shorten the paragraph
+                val shortenedParagraph = if (cleanParagraph.length > 100) {
+                    val sentences = cleanParagraph.split(Regex("[.!?]\\s+"))
+                    sentences.take(2).joinToString(". ") + "."
+                } else {
+                    cleanParagraph
+                }
+                
+                responseBuilder.append(shortenedParagraph)
+                
+                if (!shortenedParagraph.endsWith(".") && !shortenedParagraph.endsWith("!") && !shortenedParagraph.endsWith("?")) {
+                    responseBuilder.append(".")
+                }
+                
+                responseBuilder.toString()
+            }
+            
+            Log.e(TAG, "✅ Generated improved fallback document response: $response")
+            return response
             
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error generating fallback document response: ${e.message}")
+            Log.e(TAG, "❌ Error generating improved fallback document response: ${e.message}")
             return "AI: Sorry I am not capable to give this answer. Please ask another question."
         }
     }
@@ -1507,7 +1735,7 @@ class RcsAutoReplyManager(private val context: Context) {
      * This can be called to verify our fixes are working with real uploaded documents
      */
     fun testDocumentAccess(): String {
-        Log.e(TAG, "🧪🧪🧪 TESTING DOCUMENT ACCESS AND LLM RESPONSE GENERATION 🧪🧪🧪")
+        Log.e(TAG, "🧪🧪🧪 TESTING DOCUMENT ACCESS AND INTELLIGENT LLM RESPONSE GENERATION 🧪🧪🧪")
         
         try {
             // First check if we can access documents from the file system
@@ -1529,17 +1757,33 @@ class RcsAutoReplyManager(private val context: Context) {
             
             Log.e(TAG, "✅ Successfully extracted ${documentContent.length} characters from real uploaded documents")
             
-            // Generate a test response
-            val testMessage = "Tell me about your product"
-            val response = generateLLMResponseWithDocuments("TestUser", testMessage)
+            // Test different types of questions to demonstrate intelligent responses
+            val testQuestions = listOf(
+                "What is your company name?",
+                "What services do you offer?",
+                "How can I contact you?",
+                "What are your prices?",
+                "Tell me about your accounting services"
+            )
             
-            if (response.isEmpty()) {
-                Log.e(TAG, "❌ Failed to generate response with documents")
-                return "Failed to generate response with documents. Please check that your uploaded documents contain relevant information."
+            val results = StringBuilder()
+            results.append("Document-Based Response Test Results:\n\n")
+            
+            for (question in testQuestions) {
+                Log.e(TAG, "🧪 Testing question: $question")
+                val questionType = analyzeQuestion(question)
+                Log.e(TAG, "🔍 Question type: $questionType")
+                
+                val response = generateLLMResponseWithDocuments("TestUser", question)
+                
+                results.append("Q: $question\n")
+                results.append("A: $response\n\n")
+                
+                Log.e(TAG, "✅ Generated response: $response")
             }
             
-            Log.e(TAG, "✅ Successfully generated response using real uploaded documents: $response")
-            return "Test successful! Generated response from real uploaded documents: $response"
+            Log.e(TAG, "🧪🧪🧪 DOCUMENT TEST COMPLETED SUCCESSFULLY 🧪🧪🧪")
+            return results.toString()
             
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error in testDocumentAccess: ${e.message}")
