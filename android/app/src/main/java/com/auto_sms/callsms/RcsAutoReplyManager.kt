@@ -1028,11 +1028,12 @@ class RcsAutoReplyManager(private val context: Context) {
                 try {
                     Log.e(TAG, "📚 Processing document ${index+1}/${files.size}: ${file.name}")
                     
-                    // Skip empty files
-                    if (file.length() == 0L) {
-                        Log.e(TAG, "⚠️ Skipping empty document: ${file.name}")
-                        return@forEachIndexed
-                    }
+
+                    val skipLengthCheck = file.name.endsWith(".docx", true) || file.name.endsWith(".pdf", true) || file.name.endsWith(".txt", true)
+if (!skipLengthCheck && file.length() == 0L) {
+    Log.e(TAG, "⚠️ Skipping empty document: ${file.name}")
+    return@forEachIndexed
+}
                     
                     // Handle different file types
                     when {
@@ -1071,8 +1072,25 @@ class RcsAutoReplyManager(private val context: Context) {
                         }
                         file.name.endsWith(".docx", ignoreCase = true) -> {
                             Log.e(TAG, "📄 Attempting to extract text from DOCX: ${file.name}")
-                            // Placeholder for DOCX extraction if needed
-                            Log.e(TAG, "⚠️ DOCX extraction not implemented yet")
+                            try {
+                                // Use DocExtractorHelper to extract DOCX text
+                                val docxContent = DocExtractorHelper.extractTextFromDocx(file)
+                                if (docxContent.isNotEmpty()) {
+                                    val contentLength = docxContent.length
+                                    totalChars += contentLength
+                                    
+                                    builder.append(docxContent)
+                                    builder.append("\n\n")
+                                    
+                                    successCount++
+                                    Log.e(TAG, "📝 Added DOCX document: ${file.name}, extracted length: ${contentLength} chars")
+                                } else {
+                                    Log.e(TAG, "⚠️ No text extracted from DOCX: ${file.name}")
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error extracting text from DOCX ${file.name}: ${e.message}")
+                                e.printStackTrace()
+                            }
                         }
                         else -> {
                             Log.e(TAG, "⚠️ Skipping unsupported file type: ${file.name}")
