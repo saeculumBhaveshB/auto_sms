@@ -45,7 +45,7 @@
       </activity>
       
       <!-- Call receiver to detect missed calls -->
-      <receiver android:name="com.auto_sms.callsms.CallReceiver" android:exported="true">
+      <receiver android:name="com.missedcallai.callsms.CallReceiver" android:exported="true">
         <intent-filter>
             <action android:name="android.intent.action.PHONE_STATE" />
             <action android:name="android.provider.Telephony.SMS_RECEIVED" />
@@ -54,7 +54,7 @@
       </receiver>
       
       <!-- SMS receiver for AI responses -->
-      <receiver android:name="com.auto_sms.callsms.SmsReceiver" android:exported="true">
+      <receiver android:name="com.missedcallai.callsms.SmsReceiver" android:exported="true">
         <intent-filter android:priority="999">
             <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             <!-- Add potential RCS intent actions -->
